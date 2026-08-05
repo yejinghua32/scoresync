@@ -1,0 +1,19 @@
+server:
+  port: 5574
+spring:
+  sql:
+    init:
+      mode: always
+scoresync:
+  storage:
+    data-dir: ${SCORESYNC_DATA_DIR:${user.home}/.scoresync}
+  editor:
+    seek-seconds: 1
+  render:
+    ffmpeg-path: ${SCORESYNC_FFMPEG_PATH:ffmpeg}
+    ffprobe-path: ${SCORESYNC_FFPROBE_PATH:ffprobe}
+    output-dir: ${SCORESYNC_DATA_DIR:${user.home}/.scoresync}/exports
+    work-dir: ${SCORESYNC_DATA_DIR:${user.home}/.scoresync}/render-work
+    video-crf: 18
+    video-preset: medium
+    audio-bitrate: 192k

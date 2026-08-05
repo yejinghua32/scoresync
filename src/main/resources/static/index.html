@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>乒乓球视频比分编辑器</title>
+    <link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+<nav class="sidebar">
+    <div class="sidebar-header">
+        <h1 class="logo">比赛视频比分编辑器</h1>
+    </div>
+    <ul class="nav-menu">
+        <li class="nav-item active" data-view="projects">
+            <span class="nav-icon">📁</span>
+            <span>项目库</span>
+        </li>
+        <li class="nav-item" data-view="videos">
+            <span class="nav-icon">🎬</span>
+            <span>视频库</span>
+        </li>
+        <li class="nav-item" data-view="settings">
+            <span class="nav-icon">⚙️</span>
+            <span>设置</span>
+        </li>
+    </ul>
+</nav>
+
+<main class="main-content">
+    <div id="view-projects" class="view active">
+        <div class="view-header">
+            <h2>项目库</h2>
+            <div class="header-actions">
+                <button id="export-backup-all" class="secondary">导出全部备份</button>
+                <label class="btn-secondary">
+                    导入备份
+                    <input type="file" id="import-backup" accept=".json" style="display:none">
+                </label>
+            </div>
+        </div>
+        <div class="search-bar">
+            <input type="text" id="project-search" placeholder="搜索项目名称...">
+        </div>
+        <div class="card">
+            <div class="card-title">项目列表 <span id="project-count" class="count-badge">0</span></div>
+            <table class="video-table">
+                <thead>
+                <tr>
+                    <th class="name">项目名称</th>
+                    <th class="players">选手</th>
+                    <th class="format">赛制</th>
+                    <th class="video">视频</th>
+                    <th class="time">创建时间</th>
+                    <th class="actions">操作</th>
+                </tr>
+                </thead>
+                <tbody id="project-list"></tbody>
+            </table>
+            <div id="project-pager" class="pager hidden">
+                <button id="project-prev" class="secondary">上一页</button>
+                <span id="project-page-info" class="pager-info"></span>
+                <button id="project-next" class="secondary">下一页</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="view-videos" class="view">
+        <div class="view-header">
+            <h2>视频库</h2>
+        </div>
+        <div class="card">
+            <div class="card-title">视频目录</div>
+            <div class="input-row">
+                <input type="text" id="source-path" placeholder="输入目录路径" style="flex:1">
+                <button id="add-source">添加目录</button>
+                <button id="scan-all" class="secondary">扫描全部</button>
+                <button id="pick-local-video" class="secondary">选择本地视频</button>
+            </div>
+            <div id="source-list"></div>
+        </div>
+        <div class="card">
+            <div class="card-title">视频列表 <span id="video-count" class="count-badge">0</span></div>
+            <table class="video-table">
+                <thead>
+                <tr>
+                    <th class="name">文件名</th>
+                    <th class="size">大小</th>
+                    <th class="source">来源</th>
+                    <th class="time">修改时间</th>
+                    <th class="actions">操作</th>
+                </tr>
+                </thead>
+                <tbody id="video-list"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <div id="view-settings" class="view">
+        <div class="view-header">
+            <h2>设置</h2>
+        </div>
+        <div class="card">
+            <div class="card-title">队员列表</div>
+            <div class="team-member-input-row">
+                <input type="text" id="new-team-member-name" placeholder="输入队员名称">
+                <button id="add-team-member" class="secondary">添加</button>
+            </div>
+            <div id="team-member-list" class="team-member-list"></div>
+        </div>
+        <div class="card">
+            <div class="card-title">作者微信:zmipay 版本号:v1.0.0</div>
+        </div>
+    </div>
+</main>
+
+<div id="project-modal" class="modal-overlay hidden">
+    <div class="modal">
+        <h2>创建项目</h2>
+        <form id="project-form">
+            <input type="hidden" id="project-video-id">
+            <input type="hidden" id="project-duration-ms">
+            <div class="form-group">
+                <label>项目名称</label>
+                <input type="text" id="project-name" required placeholder="例如：半决赛">
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>选手 A</label>
+                    <select id="player-a" required></select>
+                </div>
+                <div class="form-group">
+                    <label>选手 B</label>
+                    <select id="player-b" required></select>
+                </div>
+            </div>
+            <div class="form-group">
+                <label>赛制</label>
+                <select id="format-preset">
+                    <option value="2">三局两胜</option>
+                    <option value="3">五局三胜</option>
+                    <option value="4">七局四胜</option>
+                    <option value="custom">自定义</option>
+                </select>
+                <div id="custom-target-wins-group" class="hidden">
+                    <input type="number" id="custom-target-wins" min="1" value="1" placeholder="自定义获胜分数">
+                </div>
+            </div>
+            <div class="modal-actions">
+                <button type="button" id="modal-cancel" class="secondary">取消</button>
+                <button type="submit" id="modal-submit">创建</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div id="template-modal" class="modal-overlay hidden">
+    <div class="modal">
+        <h2 id="template-modal-title">编辑模板</h2>
+        <form id="template-form">
+            <input type="hidden" id="template-id">
+            <div class="form-group">
+                <label>模板名称</label>
+                <input type="text" id="template-name" required placeholder="例如：我的模板">
+            </div>
+            <div class="form-group">
+                <label>透明度 (0-100)</label>
+                <input type="number" id="template-opacity" min="0" max="100" value="80">
+            </div>
+            <div class="form-group">
+                <label>背景颜色</label>
+                <div class="color-input-row">
+                    <input type="color" id="template-bg-color" value="#000000">
+                    <input type="text" id="template-bg-color-text" value="#000000" placeholder="#000000">
+                </div>
+            </div>
+            <div class="form-group">
+                <label>文字颜色</label>
+                <div class="color-input-row">
+                    <input type="color" id="template-text-color" value="#ffffff">
+                    <input type="text" id="template-text-color-text" value="#ffffff" placeholder="#ffffff">
+                </div>
+            </div>
+            <div class="modal-actions">
+                <button type="button" id="template-modal-cancel" class="secondary">取消</button>
+                <button type="submit" id="template-modal-submit">保存</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div id="edit-project-modal" class="modal-overlay hidden">
+    <div class="modal">
+        <h2>编辑项目</h2>
+        <form id="edit-project-form">
+            <input type="hidden" id="edit-project-id">
+            <div class="form-group">
+                <label>项目名称</label>
+                <input type="text" id="edit-project-name" required placeholder="例如：半决赛">
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>选手 A</label>
+                    <select id="edit-player-a" required></select>
+                </div>
+                <div class="form-group">
+                    <label>选手 B</label>
+                    <select id="edit-player-b" required></select>
+                </div>
+            </div>
+            <div class="form-group">
+                <label>赛制</label>
+                <select id="edit-format-preset">
+                    <option value="2">三局两胜</option>
+                    <option value="3">五局三胜</option>
+                    <option value="4">七局四胜</option>
+                    <option value="custom">自定义</option>
+                </select>
+                <div id="edit-custom-target-wins-group" class="hidden">
+                    <input type="number" id="edit-custom-target-wins" min="1" value="1" placeholder="自定义获胜分数">
+                </div>
+            </div>
+            <div class="modal-actions">
+                <button type="button" id="edit-modal-cancel" class="secondary">取消</button>
+                <button type="submit" id="edit-modal-submit">保存</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div id="toast-host" class="toast-host"></div>
+
+<script type="module" src="/js/app.js"></script>
+</body>
+</html>

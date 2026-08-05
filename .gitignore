@@ -1,0 +1,15 @@
+target/
+.idea/
+.vscode/
+*.iml
+.superpowers/
+run-data/
+
+# Test data (video files)
+data/*.mp4
+data/*.webm
+data/*.mov
+
+# OS
+.DS_Store
+Thumbs.db
