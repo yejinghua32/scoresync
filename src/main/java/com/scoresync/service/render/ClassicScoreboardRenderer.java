@@ -23,7 +23,7 @@ public class ClassicScoreboardRenderer implements ScoreboardTemplateRenderer {
     private static final Color BLACK_BG = new Color(0, 0, 0, 235);
     private static final Color HEADER_BG = new Color(0, 0, 0, 160);
     private static final Color YELLOW_BG = new Color(245, 190, 0);
-    private static final Color YELLOW_DIM = new Color(245, 190, 0, 90);
+    private static final Color CURRENT_INK = new Color(20, 20, 20);
     private static final Color WHITE = Color.WHITE;
     private static final Color YELLOW_DOT = new Color(255, 210, 0);
     private static final Color GREY = new Color(170, 170, 170);
@@ -63,6 +63,9 @@ public class ClassicScoreboardRenderer implements ScoreboardTemplateRenderer {
 
         Font nameFont = new Font("SansSerif", Font.BOLD, nameFontSize);
         Font numberFont = new Font("SansSerif", Font.BOLD, numberFontSize);
+        // 当前局比分使用更大字号，配合强调色底形成更强的视觉重心
+        Font currentScoreFont = new Font("SansSerif", Font.BOLD,
+                Math.max(numberFontSize, (int) (rowHeight * 0.72)));
         Font headerFont = new Font("SansSerif", Font.BOLD, headerFontSize);
 
         PlayerSide servingSide = snapshot.matchCompleted()
@@ -91,12 +94,12 @@ public class ClassicScoreboardRenderer implements ScoreboardTemplateRenderer {
         int rowBY = headerHeight + rowHeight + rowGap;
         drawRow(g, snapshot.playerA(), String.valueOf(snapshot.setWinsA()), sets,
                 headerX, rowAY, rowHeight, margin, gap, nameWidth, setWinsWidth, setColumnWidth,
-                cornerRadius, dotSize, nameFont, numberFont,
+                cornerRadius, dotSize, nameFont, numberFont, currentScoreFont,
                 servingSide != null && servingSide == PlayerSide.A, currentSetNumber, snapshot.matchCompleted(),
                 PlayerSide.A);
         drawRow(g, snapshot.playerB(), String.valueOf(snapshot.setWinsB()), sets,
                 headerX, rowBY, rowHeight, margin, gap, nameWidth, setWinsWidth, setColumnWidth,
-                cornerRadius, dotSize, nameFont, numberFont,
+                cornerRadius, dotSize, nameFont, numberFont, currentScoreFont,
                 servingSide != null && servingSide == PlayerSide.B, currentSetNumber, snapshot.matchCompleted(),
                 PlayerSide.B);
 
@@ -108,7 +111,7 @@ public class ClassicScoreboardRenderer implements ScoreboardTemplateRenderer {
                           int startX, int y, int rowHeight, int margin, int gap,
                           int nameWidth, int setWinsWidth, int setColumnWidth,
                           int cornerRadius, int dotSize,
-                          Font nameFont, Font numberFont,
+                          Font nameFont, Font numberFont, Font currentScoreFont,
                           boolean isServing, int currentSetNumber, boolean matchCompleted,
                           PlayerSide rowSide) {
         // 名称区：发球圆点与名称
@@ -136,12 +139,20 @@ public class ClassicScoreboardRenderer implements ScoreboardTemplateRenderer {
             SetScore set = sets.get(i);
             int x = setsX + i * (setColumnWidth + gap);
             boolean isCurrent = !matchCompleted && set.setNumber() == currentSetNumber;
-            g.setColor(isCurrent ? YELLOW_DIM : BLACK_BG);
-            g.fillRoundRect(x, y, setColumnWidth, rowHeight, cornerRadius, cornerRadius);
             int ownScore = rowSide == PlayerSide.A ? set.scoreA() : set.scoreB();
             String text = String.valueOf(ownScore);
-            SetScoreLayout.drawCellText(g, text, numberFont, isCurrent ? YELLOW_BG : WHITE,
-                    x, y, setColumnWidth, rowHeight);
+            if (isCurrent) {
+                // 当前局：强调色实底 + 深色大字，与胜局列同一配色语言
+                g.setColor(YELLOW_BG);
+                g.fillRoundRect(x, y, setColumnWidth, rowHeight, cornerRadius, cornerRadius);
+                SetScoreLayout.drawCellText(g, text, currentScoreFont, CURRENT_INK,
+                        x, y, setColumnWidth, rowHeight);
+            } else {
+                g.setColor(BLACK_BG);
+                g.fillRoundRect(x, y, setColumnWidth, rowHeight, cornerRadius, cornerRadius);
+                SetScoreLayout.drawCellText(g, text, numberFont, WHITE,
+                        x, y, setColumnWidth, rowHeight);
+            }
         }
     }
 
