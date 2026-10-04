@@ -23,7 +23,8 @@ public class ModernScoreboardRenderer implements ScoreboardTemplateRenderer {
     private static final Color BG = new Color(17, 24, 39, 230);
     private static final Color HEADER_BG = new Color(15, 23, 42, 190);
     private static final Color ACCENT = new Color(245, 158, 11);
-    private static final Color CURRENT_INK = new Color(17, 24, 39);
+    private static final Color WINS_BG = new Color(211, 47, 47);
+    private static final Color CURRENT_BG = new Color(245, 190, 0);
     private static final Color WHITE = Color.WHITE;
     private static final Color MUTED = new Color(148, 163, 184);
     private static final Color ROW_BG = new Color(30, 41, 59, 200);
@@ -133,11 +134,11 @@ public class ModernScoreboardRenderer implements ScoreboardTemplateRenderer {
         SetScoreLayout.drawCellText(g, playerName, nameFont, WHITE,
                 textLeft, y, startX + nameWidth - textLeft, rowHeight);
 
-        // 胜局列
+        // 胜局列：红底白字
         int winsX = startX + nameWidth + gap;
-        g.setColor(ACCENT);
+        g.setColor(WINS_BG);
         g.fillRoundRect(winsX, y, setWinsWidth, rowHeight, cornerRadius, cornerRadius);
-        SetScoreLayout.drawCellText(g, setWins, numberFont, BG, winsX, y, setWinsWidth, rowHeight);
+        SetScoreLayout.drawCellText(g, setWins, numberFont, WHITE, winsX, y, setWinsWidth, rowHeight);
 
         // 逐局列
         int setsX = winsX + setWinsWidth + gap;
@@ -148,10 +149,10 @@ public class ModernScoreboardRenderer implements ScoreboardTemplateRenderer {
             int ownScore = rowSide == PlayerSide.A ? set.scoreA() : set.scoreB();
             String text = String.valueOf(ownScore);
             if (isCurrent) {
-                // 当前局：强调色实底 + 深色大字，与胜局列同一配色语言
-                g.setColor(ACCENT);
+                // 当前局：黄底白字
+                g.setColor(CURRENT_BG);
                 g.fillRoundRect(x, y, setColumnWidth, rowHeight, cornerRadius, cornerRadius);
-                SetScoreLayout.drawCellText(g, text, currentScoreFont, CURRENT_INK,
+                SetScoreLayout.drawCellText(g, text, currentScoreFont, WHITE,
                         x, y, setColumnWidth, rowHeight);
             } else {
                 g.setColor(ROW_BG);

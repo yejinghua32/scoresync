@@ -23,7 +23,7 @@ public class ClassicScoreboardRenderer implements ScoreboardTemplateRenderer {
     private static final Color BLACK_BG = new Color(0, 0, 0, 235);
     private static final Color HEADER_BG = new Color(0, 0, 0, 160);
     private static final Color YELLOW_BG = new Color(245, 190, 0);
-    private static final Color CURRENT_INK = new Color(20, 20, 20);
+    private static final Color WINS_BG = new Color(211, 47, 47);
     private static final Color WHITE = Color.WHITE;
     private static final Color YELLOW_DOT = new Color(255, 210, 0);
     private static final Color GREY = new Color(170, 170, 170);
@@ -127,9 +127,9 @@ public class ClassicScoreboardRenderer implements ScoreboardTemplateRenderer {
         SetScoreLayout.drawCellText(g, playerName, nameFont, WHITE,
                 textLeft, y, startX + nameWidth - textLeft, rowHeight);
 
-        // 胜局列
+        // 胜局列：红底白字
         int winsX = startX + nameWidth + gap;
-        g.setColor(YELLOW_BG);
+        g.setColor(WINS_BG);
         g.fillRoundRect(winsX, y, setWinsWidth, rowHeight, cornerRadius, cornerRadius);
         SetScoreLayout.drawCellText(g, setWins, numberFont, WHITE, winsX, y, setWinsWidth, rowHeight);
 
@@ -142,10 +142,10 @@ public class ClassicScoreboardRenderer implements ScoreboardTemplateRenderer {
             int ownScore = rowSide == PlayerSide.A ? set.scoreA() : set.scoreB();
             String text = String.valueOf(ownScore);
             if (isCurrent) {
-                // 当前局：强调色实底 + 深色大字，与胜局列同一配色语言
+                // 当前局：黄底白字
                 g.setColor(YELLOW_BG);
                 g.fillRoundRect(x, y, setColumnWidth, rowHeight, cornerRadius, cornerRadius);
-                SetScoreLayout.drawCellText(g, text, currentScoreFont, CURRENT_INK,
+                SetScoreLayout.drawCellText(g, text, currentScoreFont, WHITE,
                         x, y, setColumnWidth, rowHeight);
             } else {
                 g.setColor(BLACK_BG);
