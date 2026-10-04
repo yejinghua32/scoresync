@@ -8,6 +8,7 @@ import org.springframework.stereotype.Component;
 
 import java.awt.Color;
 import java.awt.Font;
+import java.awt.FontMetrics;
 import java.awt.Graphics2D;
 import java.awt.RenderingHints;
 import java.awt.image.BufferedImage;
@@ -49,6 +50,7 @@ public class ModernScoreboardRenderer implements ScoreboardTemplateRenderer {
         int margin = SetScoreLayout.margin(frameWidth);
         int gap = SetScoreLayout.gap(frameWidth);
         int nameWidth = SetScoreLayout.nameWidth(frameWidth);
+        int serveColumnWidth = SetScoreLayout.serveColumnWidth(frameWidth);
         int setWinsWidth = SetScoreLayout.setWinsWidth(frameWidth);
         int setColumnWidth = SetScoreLayout.setColumnWidth(frameWidth);
         int cornerRadius = Math.max(2, (int) Math.round(10 * SetScoreLayout.scale(frameWidth)));
@@ -56,7 +58,6 @@ public class ModernScoreboardRenderer implements ScoreboardTemplateRenderer {
         int headerHeight = Math.max(6, (int) Math.round(height * 0.22));
         int rowGap = Math.max(1, (int) Math.round(4 * SetScoreLayout.scale(frameWidth)));
         int rowHeight = Math.max(1, (height - headerHeight - rowGap) / 2);
-        int arrowFontSize = Math.max(5, (int) (rowHeight * 0.44));
 
         int nameFontSize = Math.max(6, (int) (rowHeight * 0.44));
         int numberFontSize = Math.max(6, (int) (rowHeight * 0.50));
@@ -68,7 +69,6 @@ public class ModernScoreboardRenderer implements ScoreboardTemplateRenderer {
         Font currentScoreFont = new Font("SansSerif", Font.BOLD,
                 Math.max(numberFontSize, (int) (rowHeight * 0.70)));
         Font headerFont = new Font("SansSerif", Font.BOLD, headerFontSize);
-        Font arrowFont = new Font("SansSerif", Font.BOLD, arrowFontSize);
 
         PlayerSide servingSide = snapshot.matchCompleted()
                 ? null
@@ -77,7 +77,8 @@ public class ModernScoreboardRenderer implements ScoreboardTemplateRenderer {
 
         int currentSetNumber = sets.isEmpty() ? 0 : sets.get(sets.size() - 1).setNumber();
         int startX = margin;
-        int winsX = startX + nameWidth + gap;
+        int serveX = startX + nameWidth + gap;
+        int winsX = serveX + serveColumnWidth + gap;
         int setsX = winsX + setWinsWidth + gap;
 
         g.setColor(HEADER_BG);
@@ -94,15 +95,15 @@ public class ModernScoreboardRenderer implements ScoreboardTemplateRenderer {
         int rowAY = headerHeight;
         int rowBY = headerHeight + rowHeight + rowGap;
         drawRow(g, snapshot.playerA(), String.valueOf(snapshot.setWinsA()), sets,
-                startX, rowAY, rowHeight, gap, nameWidth, setWinsWidth, setColumnWidth,
-                cornerRadius, arrowFontSize, arrowFont, nameFont, numberFont, currentScoreFont,
+                startX, rowAY, rowHeight, gap, nameWidth, serveColumnWidth, setWinsWidth, setColumnWidth,
+                cornerRadius, nameFont, numberFont, currentScoreFont,
                 servingSide != null && servingSide == PlayerSide.A, currentSetNumber, snapshot.matchCompleted(),
-                false, PlayerSide.A);
+                PlayerSide.A);
         drawRow(g, snapshot.playerB(), String.valueOf(snapshot.setWinsB()), sets,
-                startX, rowBY, rowHeight, gap, nameWidth, setWinsWidth, setColumnWidth,
-                cornerRadius, arrowFontSize, arrowFont, nameFont, numberFont, currentScoreFont,
+                startX, rowBY, rowHeight, gap, nameWidth, serveColumnWidth, setWinsWidth, setColumnWidth,
+                cornerRadius, nameFont, numberFont, currentScoreFont,
                 servingSide != null && servingSide == PlayerSide.B, currentSetNumber, snapshot.matchCompleted(),
-                true, PlayerSide.B);
+                PlayerSide.B);
 
         g.dispose();
         return image;
@@ -110,32 +111,30 @@ public class ModernScoreboardRenderer implements ScoreboardTemplateRenderer {
 
     private void drawRow(Graphics2D g, String playerName, String setWins, List<SetScore> sets,
                           int startX, int y, int rowHeight, int gap,
-                          int nameWidth, int setWinsWidth, int setColumnWidth,
-                          int cornerRadius, int arrowFontSize, Font arrowFont, Font nameFont, Font numberFont,
-                          Font currentScoreFont,
+                          int nameWidth, int serveColumnWidth, int setWinsWidth, int setColumnWidth,
+                          int cornerRadius, Font nameFont, Font numberFont, Font currentScoreFont,
                           boolean isServing, int currentSetNumber, boolean matchCompleted,
-                          boolean flipOrder, PlayerSide rowSide) {
-        // 名称区：箭头与名称
+                          PlayerSide rowSide) {
+        // 名称区
         g.setColor(ROW_BG);
         g.fillRoundRect(startX, y, nameWidth, rowHeight, cornerRadius, cornerRadius);
-        int textLeft = startX;
-        if (isServing) {
-            int arrowX = flipOrder
-                    ? startX + nameWidth - arrowFontSize - Math.max(2, gap)
-                    : startX + Math.max(2, gap);
-            g.setFont(arrowFont);
-            g.setColor(ACCENT);
-            int fmAscent = g.getFontMetrics().getAscent();
-            g.drawString(flipOrder ? "◄" : "►", arrowX, y + rowHeight / 2 + fmAscent / 2 - Math.max(1, rowGapOffset(rowHeight)));
-            textLeft = flipOrder
-                    ? startX + Math.max(2, gap)
-                    : startX + Math.max(2, gap) + arrowFontSize + gap;
-        }
         SetScoreLayout.drawCellText(g, playerName, nameFont, WHITE,
-                textLeft, y, startX + nameWidth - textLeft, rowHeight);
+                startX, y, nameWidth, rowHeight);
+
+        // 发球标识列：固定宽度，箭头水平垂直居中
+        int serveX = startX + nameWidth + gap;
+        if (isServing) {
+            g.setFont(serveIndicatorFont(rowHeight));
+            FontMetrics fm = g.getFontMetrics();
+            String arrow = "►";
+            int arrowX = serveX + (serveColumnWidth - fm.stringWidth(arrow)) / 2;
+            int arrowY = y + (rowHeight + fm.getAscent() - fm.getDescent()) / 2;
+            g.setColor(ACCENT);
+            g.drawString(arrow, arrowX, arrowY);
+        }
 
         // 胜局列：红底白字
-        int winsX = startX + nameWidth + gap;
+        int winsX = serveX + serveColumnWidth + gap;
         g.setColor(WINS_BG);
         g.fillRoundRect(winsX, y, setWinsWidth, rowHeight, cornerRadius, cornerRadius);
         SetScoreLayout.drawCellText(g, setWins, numberFont, WHITE, winsX, y, setWinsWidth, rowHeight);
@@ -163,8 +162,12 @@ public class ModernScoreboardRenderer implements ScoreboardTemplateRenderer {
         }
     }
 
-    private int rowGapOffset(int rowHeight) {
-        return Math.max(1, (int) (rowHeight * 0.06));
+    /**
+     * 发球箭头字号：随行高缩放，并限制在发球列内不会溢出
+     */
+    private Font serveIndicatorFont(int rowHeight) {
+        int size = Math.max(5, (int) (rowHeight * 0.44));
+        return new Font("SansSerif", Font.BOLD, size);
     }
 
     /**

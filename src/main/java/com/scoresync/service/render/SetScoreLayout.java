@@ -21,6 +21,7 @@ final class SetScoreLayout {
     /** 1920 宽基准下各部分占视频帧宽度的比例 */
     private static final double MARGIN_RATIO = 8 / 1920.0;
     private static final double NAME_RATIO = 260 / 1920.0;
+    private static final double SERVE_RATIO = 30 / 1920.0;
     private static final double SET_WINS_RATIO = 64 / 1920.0;
     private static final double SET_COLUMN_RATIO = 56 / 1920.0;
     private static final double GAP_RATIO = 6 / 1920.0;
@@ -52,7 +53,7 @@ final class SetScoreLayout {
     }
 
     /**
-     * 计算整体宽度：边距 + 名称区 + 胜局列 + 可见局数列 + 间距
+     * 计算整体宽度：边距 + 名称区 + 发球列 + 胜局列 + 可见局数列 + 间距
      *
      * <p>宽度与视频帧宽度严格成正比，因此同一局数下不同分辨率的比分牌
      * 占屏比例一致；小分辨率下由 {@link #drawCellText} 缩小字号或省略，
@@ -66,9 +67,10 @@ final class SetScoreLayout {
         int sets = normalizedSetCount(setCount);
         double ratio = MARGIN_RATIO * 2
                 + NAME_RATIO
+                + SERVE_RATIO
                 + SET_WINS_RATIO
                 + SET_COLUMN_RATIO * sets
-                + GAP_RATIO * (sets + 1);
+                + GAP_RATIO * (sets + 3);
         return Math.max(1, (int) Math.round(frameWidth * ratio));
     }
 
@@ -77,6 +79,15 @@ final class SetScoreLayout {
      */
     static int nameWidth(int frameWidth) {
         return scaled(frameWidth, NAME_RATIO);
+    }
+
+    /**
+     * 发球标识列宽度
+     *
+     * <p>固定宽度且始终占位，保证发球方切换时胜局列和逐局列不会左右跳动。
+     */
+    static int serveColumnWidth(int frameWidth) {
+        return scaled(frameWidth, SERVE_RATIO);
     }
 
     /**

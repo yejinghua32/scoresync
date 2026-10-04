@@ -48,6 +48,7 @@ public class ClassicScoreboardRenderer implements ScoreboardTemplateRenderer {
         int margin = SetScoreLayout.margin(frameWidth);
         int gap = SetScoreLayout.gap(frameWidth);
         int nameWidth = SetScoreLayout.nameWidth(frameWidth);
+        int serveColumnWidth = SetScoreLayout.serveColumnWidth(frameWidth);
         int setWinsWidth = SetScoreLayout.setWinsWidth(frameWidth);
         int setColumnWidth = SetScoreLayout.setColumnWidth(frameWidth);
         int cornerRadius = Math.max(2, (int) Math.round(8 * SetScoreLayout.scale(frameWidth)));
@@ -77,7 +78,8 @@ public class ClassicScoreboardRenderer implements ScoreboardTemplateRenderer {
 
         // 表头：名称列留空，其余为“胜局”与各局号
         int headerX = margin;
-        int headerWinsX = headerX + nameWidth + gap;
+        int headerServeX = headerX + nameWidth + gap;
+        int headerWinsX = headerServeX + serveColumnWidth + gap;
         int headerSetsX = headerWinsX + setWinsWidth + gap;
         g.setColor(HEADER_BG);
         g.fillRect(headerX, 0, width - margin * 2, headerHeight);
@@ -93,12 +95,12 @@ public class ClassicScoreboardRenderer implements ScoreboardTemplateRenderer {
         int rowAY = headerHeight;
         int rowBY = headerHeight + rowHeight + rowGap;
         drawRow(g, snapshot.playerA(), String.valueOf(snapshot.setWinsA()), sets,
-                headerX, rowAY, rowHeight, margin, gap, nameWidth, setWinsWidth, setColumnWidth,
+                headerX, rowAY, rowHeight, gap, nameWidth, serveColumnWidth, setWinsWidth, setColumnWidth,
                 cornerRadius, dotSize, nameFont, numberFont, currentScoreFont,
                 servingSide != null && servingSide == PlayerSide.A, currentSetNumber, snapshot.matchCompleted(),
                 PlayerSide.A);
         drawRow(g, snapshot.playerB(), String.valueOf(snapshot.setWinsB()), sets,
-                headerX, rowBY, rowHeight, margin, gap, nameWidth, setWinsWidth, setColumnWidth,
+                headerX, rowBY, rowHeight, gap, nameWidth, serveColumnWidth, setWinsWidth, setColumnWidth,
                 cornerRadius, dotSize, nameFont, numberFont, currentScoreFont,
                 servingSide != null && servingSide == PlayerSide.B, currentSetNumber, snapshot.matchCompleted(),
                 PlayerSide.B);
@@ -108,27 +110,29 @@ public class ClassicScoreboardRenderer implements ScoreboardTemplateRenderer {
     }
 
     private void drawRow(Graphics2D g, String playerName, String setWins, List<SetScore> sets,
-                          int startX, int y, int rowHeight, int margin, int gap,
-                          int nameWidth, int setWinsWidth, int setColumnWidth,
+                          int startX, int y, int rowHeight, int gap,
+                          int nameWidth, int serveColumnWidth, int setWinsWidth, int setColumnWidth,
                           int cornerRadius, int dotSize,
                           Font nameFont, Font numberFont, Font currentScoreFont,
                           boolean isServing, int currentSetNumber, boolean matchCompleted,
                           PlayerSide rowSide) {
-        // 名称区：发球圆点与名称
+        // 名称区
         g.setColor(BLACK_BG);
         g.fillRoundRect(startX, y, nameWidth, rowHeight, cornerRadius, cornerRadius);
-        int textLeft = startX;
+        SetScoreLayout.drawCellText(g, playerName, nameFont, WHITE,
+                startX, y, nameWidth, rowHeight);
+
+        // 发球标识列：固定宽度，发球圆点居中
+        int serveX = startX + nameWidth + gap;
         if (isServing) {
             g.setColor(YELLOW_DOT);
             int dotY = y + (rowHeight - dotSize) / 2;
-            g.fillOval(startX + Math.max(2, gap), dotY, dotSize, dotSize);
-            textLeft = startX + Math.max(2, gap) + dotSize + gap;
+            int dotX = serveX + (serveColumnWidth - dotSize) / 2;
+            g.fillOval(dotX, dotY, dotSize, dotSize);
         }
-        SetScoreLayout.drawCellText(g, playerName, nameFont, WHITE,
-                textLeft, y, startX + nameWidth - textLeft, rowHeight);
 
         // 胜局列：红底白字
-        int winsX = startX + nameWidth + gap;
+        int winsX = serveX + serveColumnWidth + gap;
         g.setColor(WINS_BG);
         g.fillRoundRect(winsX, y, setWinsWidth, rowHeight, cornerRadius, cornerRadius);
         SetScoreLayout.drawCellText(g, setWins, numberFont, WHITE, winsX, y, setWinsWidth, rowHeight);
