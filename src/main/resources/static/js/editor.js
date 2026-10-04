@@ -63,8 +63,24 @@ async function loadState() {
     }
 }
 
+function teamLabel(side, name) {
+    const trimmed = (name || '').trim();
+    return trimmed ? `${side}队-${trimmed}` : `${side}队`;
+}
+
+function applyTeamNames(project) {
+    if (!project) return;
+    const labelA = teamLabel('A', project.playerA);
+    const labelB = teamLabel('B', project.playerB);
+    document.getElementById('team-label-a').textContent = labelA;
+    document.getElementById('team-label-b').textContent = labelB;
+    document.getElementById('score-a').textContent = `${labelA}得分`;
+    document.getElementById('score-b').textContent = `${labelB}得分`;
+}
+
 function renderState(state) {
     currentState = state;
+    applyTeamNames(state.project);
     document.getElementById('current-set').textContent = `当前局数: ${state.match.currentSetNo}  |  ${state.match.currentScoreA} - ${state.match.currentScoreB}`;
     document.getElementById('set-wins').textContent = `A胜: ${state.match.setWinsA} 局  |  B胜: ${state.match.setWinsB} 局`;
     document.getElementById('completed-sets').textContent = `已完成局数: ${(state.match.completedSets || []).length}`;
@@ -249,7 +265,7 @@ document.addEventListener('keydown', (event) => {
     if (event.code === 'KeyA') {
         event.preventDefault();
         enqueueWrite(() => addPoint('A'));
-    } else if (event.code === 'KeyD') {
+    } else if (event.code === 'KeyD' || event.code === 'KeyB') {
         event.preventDefault();
         enqueueWrite(() => addPoint('B'));
     } else if (event.code === 'KeyZ') {

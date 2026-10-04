@@ -72,7 +72,7 @@ java -jar target\score-sync-0.0.1-SNAPSHOT.jar
 
 ## 固定快捷键
 - A - A队得分
-- D - B队得分
+- D / B - B队得分
 - Z - 撤销得分
 - 空格 - 播放/暂停
 - 左/右方向键：按设置中的固定秒数跳转（默认 1 秒，键 `scoresync.editor.seek-seconds`）
