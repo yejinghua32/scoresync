@@ -121,8 +121,10 @@ public class ModernScoreboardRenderer implements ScoreboardTemplateRenderer {
         SetScoreLayout.drawCellText(g, playerName, nameFont, WHITE,
                 startX, y, nameWidth, rowHeight);
 
-        // 发球标识列：固定宽度，箭头水平垂直居中
+        // 发球标识列：固定宽度，背景与队名一致，箭头水平垂直居中
         int serveX = startX + nameWidth + gap;
+        g.setColor(ROW_BG);
+        g.fillRoundRect(serveX, y, serveColumnWidth, rowHeight, cornerRadius, cornerRadius);
         if (isServing) {
             g.setFont(serveIndicatorFont(rowHeight));
             FontMetrics fm = g.getFontMetrics();

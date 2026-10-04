@@ -122,8 +122,10 @@ public class ClassicScoreboardRenderer implements ScoreboardTemplateRenderer {
         SetScoreLayout.drawCellText(g, playerName, nameFont, WHITE,
                 startX, y, nameWidth, rowHeight);
 
-        // 发球标识列：固定宽度，发球圆点居中
+        // 发球标识列：固定宽度，背景与队名一致，发球圆点居中
         int serveX = startX + nameWidth + gap;
+        g.setColor(BLACK_BG);
+        g.fillRoundRect(serveX, y, serveColumnWidth, rowHeight, cornerRadius, cornerRadius);
         if (isServing) {
             g.setColor(YELLOW_DOT);
             int dotY = y + (rowHeight - dotSize) / 2;
