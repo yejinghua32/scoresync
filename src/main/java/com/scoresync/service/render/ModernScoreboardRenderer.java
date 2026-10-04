@@ -3,22 +3,31 @@ package com.scoresync.service.render;
 import com.scoresync.domain.PlayerSide;
 import com.scoresync.domain.ScoreboardSnapshot;
 import com.scoresync.domain.ScoreboardTemplate;
+import com.scoresync.domain.SetScore;
 import org.springframework.stereotype.Component;
 
-import java.awt.*;
+import java.awt.Color;
+import java.awt.Font;
+import java.awt.Graphics2D;
+import java.awt.RenderingHints;
 import java.awt.image.BufferedImage;
+import java.util.List;
 
 /**
  * 现代风格计分板渲染器
- * 实现深色背景、橙色强调色的现代UI风格计分板
+ * 实现深色背景、橙色强调色的现代 UI 风格计分牌，按 WTT 表格展示逐局比分
  */
 @Component
 public class ModernScoreboardRenderer implements ScoreboardTemplateRenderer {
 
     private static final Color BG = new Color(17, 24, 39, 230);
+    private static final Color HEADER_BG = new Color(15, 23, 42, 190);
     private static final Color ACCENT = new Color(245, 158, 11);
+    private static final Color ACCENT_DIM = new Color(245, 158, 11, 80);
     private static final Color WHITE = Color.WHITE;
+    private static final Color MUTED = new Color(148, 163, 184);
     private static final Color ROW_BG = new Color(30, 41, 59, 200);
+    private static final Color CURRENT_CELL_BG = new Color(51, 65, 85, 220);
 
     @Override
     public ScoreboardTemplate template() {
@@ -27,109 +36,127 @@ public class ModernScoreboardRenderer implements ScoreboardTemplateRenderer {
 
     @Override
     public BufferedImage render(ScoreboardSnapshot snapshot) {
-        double scale = snapshot.frameWidth() / 1920.0;
-        int width = RenderDimensions.barWidth(snapshot.frameWidth());
-        int height = RenderDimensions.barHeight(snapshot.frameWidth(), snapshot.frameHeight());
+        List<SetScore> sets = SetScoreLayout.visibleSets(snapshot.setScores());
+        int frameWidth = snapshot.frameWidth();
+        int width = SetScoreLayout.barWidth(frameWidth, sets.size());
+        int height = RenderDimensions.barHeight(frameWidth, snapshot.frameHeight());
 
         BufferedImage image = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
         Graphics2D g = image.createGraphics();
         g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
         g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
 
-        int outerMargin = (int) (8 * scale);
-        int cornerRadius = (int) (8 * scale);
-        int rowGap = (int) (4 * scale);
-        int rowHeight = (height - rowGap) / 2;
+        int margin = SetScoreLayout.margin(frameWidth);
+        int gap = SetScoreLayout.gap(frameWidth);
+        int nameWidth = SetScoreLayout.nameWidth(frameWidth);
+        int setWinsWidth = SetScoreLayout.setWinsWidth(frameWidth);
+        int setColumnWidth = SetScoreLayout.setColumnWidth(frameWidth);
+        int cornerRadius = Math.max(2, (int) Math.round(10 * SetScoreLayout.scale(frameWidth)));
 
-        g.setColor(BG);
-        g.fillRoundRect(outerMargin, outerMargin / 2, width - outerMargin * 2, height - outerMargin, cornerRadius, cornerRadius);
+        int headerHeight = Math.max(6, (int) Math.round(height * 0.22));
+        int rowGap = Math.max(1, (int) Math.round(4 * SetScoreLayout.scale(frameWidth)));
+        int rowHeight = Math.max(1, (height - headerHeight - rowGap) / 2);
+        int arrowFontSize = Math.max(5, (int) (rowHeight * 0.44));
 
-        int contentWidth = width - outerMargin * 2;
-        int arrowWidth = (int) (contentWidth * 0.06);
-        int nameWidth = (int) (contentWidth * 0.40);
-        int bigScoreWidth = (int) (contentWidth * 0.16);
-        int setWinsWidth = (int) (contentWidth * 0.10);
-        int gap = (int) (4 * scale);
-
-        int nameFontSize = (int) (rowHeight * 0.42);
-        int bigScoreFontSize = (int) (rowHeight * 0.58);
-        int setWinsFontSize = (int) (rowHeight * 0.42);
+        int nameFontSize = Math.max(6, (int) (rowHeight * 0.44));
+        int numberFontSize = Math.max(6, (int) (rowHeight * 0.50));
+        int headerFontSize = Math.max(5, (int) (headerHeight * 0.60));
 
         Font nameFont = new Font("SansSerif", Font.BOLD, nameFontSize);
-        Font bigScoreFont = new Font("SansSerif", Font.BOLD, bigScoreFontSize);
-        Font setWinsFont = new Font("SansSerif", Font.BOLD, setWinsFontSize);
+        Font numberFont = new Font("SansSerif", Font.BOLD, numberFontSize);
+        Font headerFont = new Font("SansSerif", Font.BOLD, headerFontSize);
+        Font arrowFont = new Font("SansSerif", Font.BOLD, arrowFontSize);
 
         PlayerSide servingSide = snapshot.matchCompleted()
                 ? null
                 : computeServingSide(snapshot.firstServer(),
                 snapshot.setNumber(), snapshot.scoreA(), snapshot.scoreB());
 
-        int startX = outerMargin;
-        int row1Y = outerMargin / 2 + (int) (4 * scale);
-        int row2Y = row1Y + rowHeight + rowGap;
+        int currentSetNumber = sets.isEmpty() ? 0 : sets.get(sets.size() - 1).setNumber();
+        int startX = margin;
+        int winsX = startX + nameWidth + gap;
+        int setsX = winsX + setWinsWidth + gap;
 
-        drawRow(g, startX, row1Y, rowHeight, arrowWidth, nameWidth, bigScoreWidth, setWinsWidth, gap,
-                cornerRadius, snapshot.playerA(),
-                String.valueOf(snapshot.scoreA()), String.valueOf(snapshot.setWinsA()),
-                nameFont, bigScoreFont, setWinsFont,
-                servingSide != null && servingSide == PlayerSide.A, false);
+        g.setColor(HEADER_BG);
+        g.fillRoundRect(startX, 0, width - margin * 2, headerHeight, cornerRadius, cornerRadius);
+        SetScoreLayout.drawCellText(g, "胜局", headerFont, MUTED, winsX, 0, setWinsWidth, headerHeight);
+        for (int i = 0; i < sets.size(); i++) {
+            SetScore set = sets.get(i);
+            boolean isCurrent = !snapshot.matchCompleted() && set.setNumber() == currentSetNumber;
+            SetScoreLayout.drawCellText(g, String.valueOf(set.setNumber()), headerFont,
+                    isCurrent ? ACCENT : MUTED,
+                    setsX + i * (setColumnWidth + gap), 0, setColumnWidth, headerHeight);
+        }
 
-        drawRow(g, startX, row2Y, rowHeight, arrowWidth, nameWidth, bigScoreWidth, setWinsWidth, gap,
-                cornerRadius, snapshot.playerB(),
-                String.valueOf(snapshot.scoreB()), String.valueOf(snapshot.setWinsB()),
-                nameFont, bigScoreFont, setWinsFont,
-                servingSide != null && servingSide == PlayerSide.B, true);
+        int rowAY = headerHeight;
+        int rowBY = headerHeight + rowHeight + rowGap;
+        drawRow(g, snapshot.playerA(), String.valueOf(snapshot.setWinsA()), sets,
+                startX, rowAY, rowHeight, gap, nameWidth, setWinsWidth, setColumnWidth,
+                cornerRadius, arrowFontSize, arrowFont, nameFont, numberFont,
+                servingSide != null && servingSide == PlayerSide.A, currentSetNumber, snapshot.matchCompleted(),
+                false, PlayerSide.A);
+        drawRow(g, snapshot.playerB(), String.valueOf(snapshot.setWinsB()), sets,
+                startX, rowBY, rowHeight, gap, nameWidth, setWinsWidth, setColumnWidth,
+                cornerRadius, arrowFontSize, arrowFont, nameFont, numberFont,
+                servingSide != null && servingSide == PlayerSide.B, currentSetNumber, snapshot.matchCompleted(),
+                true, PlayerSide.B);
 
         g.dispose();
         return image;
     }
 
-    /**
-     * 绘制单行计分板（包含选手名、局分、总分和发球指示）
-     */
-    private void drawRow(Graphics2D g, int x, int y, int rowHeight,
-                         int arrowWidth, int nameWidth, int bigScoreWidth, int setWinsWidth, int gap,
-                         int cornerRadius,
-                         String playerName, String bigScore, String setWins,
-                         Font nameFont, Font bigScoreFont, Font setWinsFont,
-                         boolean isServing, boolean flipOrder) {
-        int cursor = x;
-
+    private void drawRow(Graphics2D g, String playerName, String setWins, List<SetScore> sets,
+                          int startX, int y, int rowHeight, int gap,
+                          int nameWidth, int setWinsWidth, int setColumnWidth,
+                          int cornerRadius, int arrowFontSize, Font arrowFont, Font nameFont, Font numberFont,
+                          boolean isServing, int currentSetNumber, boolean matchCompleted,
+                          boolean flipOrder, PlayerSide rowSide) {
+        // 名称区：箭头与名称
+        g.setColor(ROW_BG);
+        g.fillRoundRect(startX, y, nameWidth, rowHeight, cornerRadius, cornerRadius);
+        int textLeft = startX;
         if (isServing) {
-            int arrowFontSize = (int) (rowHeight * 0.5);
-            g.setFont(new Font("SansSerif", Font.BOLD, arrowFontSize));
+            int arrowX = flipOrder
+                    ? startX + nameWidth - arrowFontSize - Math.max(2, gap)
+                    : startX + Math.max(2, gap);
+            g.setFont(arrowFont);
             g.setColor(ACCENT);
-            g.drawString("►", cursor + (int) (4 * ((double) rowHeight / 20)), y + rowHeight / 2 + arrowFontSize / 3);
+            int fmAscent = g.getFontMetrics().getAscent();
+            g.drawString(flipOrder ? "◄" : "►", arrowX, y + rowHeight / 2 + fmAscent / 2 - Math.max(1, rowGapOffset(rowHeight)));
+            textLeft = flipOrder
+                    ? startX + Math.max(2, gap)
+                    : startX + Math.max(2, gap) + arrowFontSize + gap;
         }
-        cursor += arrowWidth;
+        SetScoreLayout.drawCellText(g, playerName, nameFont, WHITE,
+                textLeft, y, startX + nameWidth - textLeft, rowHeight);
 
-        g.setColor(ROW_BG);
-        g.fillRoundRect(cursor, y, nameWidth, rowHeight, cornerRadius, cornerRadius);
-        drawTextCentered(g, playerName, nameFont, WHITE, cursor, y, nameWidth, rowHeight);
-        cursor += nameWidth + gap;
-
-        g.setColor(ROW_BG);
-        g.fillRoundRect(cursor, y, setWinsWidth, rowHeight, cornerRadius, cornerRadius);
-        drawTextCentered(g, setWins, setWinsFont, WHITE, cursor, y, setWinsWidth, rowHeight);
-        cursor += setWinsWidth + gap;
-
+        // 胜局列
+        int winsX = startX + nameWidth + gap;
         g.setColor(ACCENT);
-        g.fillRoundRect(cursor, y, bigScoreWidth, rowHeight, cornerRadius, cornerRadius);
-        drawTextCentered(g, bigScore, bigScoreFont, WHITE, cursor, y, bigScoreWidth, rowHeight);
+        g.fillRoundRect(winsX, y, setWinsWidth, rowHeight, cornerRadius, cornerRadius);
+        SetScoreLayout.drawCellText(g, setWins, numberFont, BG, winsX, y, setWinsWidth, rowHeight);
+
+        // 逐局列
+        int setsX = winsX + setWinsWidth + gap;
+        for (int i = 0; i < sets.size(); i++) {
+            SetScore set = sets.get(i);
+            int x = setsX + i * (setColumnWidth + gap);
+            boolean isCurrent = !matchCompleted && set.setNumber() == currentSetNumber;
+            g.setColor(isCurrent ? CURRENT_CELL_BG : ROW_BG);
+            g.fillRoundRect(x, y, setColumnWidth, rowHeight, cornerRadius, cornerRadius);
+            if (isCurrent) {
+                g.setColor(ACCENT_DIM);
+                g.drawRoundRect(x, y, setColumnWidth, rowHeight, cornerRadius, cornerRadius);
+            }
+            int ownScore = rowSide == PlayerSide.A ? set.scoreA() : set.scoreB();
+            String text = String.valueOf(ownScore);
+            SetScoreLayout.drawCellText(g, text, numberFont, isCurrent ? ACCENT : WHITE,
+                    x, y, setColumnWidth, rowHeight);
+        }
     }
 
-    /**
-     * 居中绘制文本
-     */
-    private void drawTextCentered(Graphics2D g, String text, Font font, Color color,
-                                  int x, int y, int w, int h) {
-        if (text == null || text.isEmpty()) return;
-        g.setFont(font);
-        FontMetrics fm = g.getFontMetrics();
-        int textX = x + (w - fm.stringWidth(text)) / 2;
-        int textY = y + (h - fm.getHeight()) / 2 + fm.getAscent();
-        g.setColor(color);
-        g.drawString(text, textX, textY);
+    private int rowGapOffset(int rowHeight) {
+        return Math.max(1, (int) (rowHeight * 0.06));
     }
 
     /**

@@ -445,7 +445,10 @@ button.danger:hover {
     position: absolute;
     left: 2.5%;
     bottom: 15.5%;
+    /* 宽度由 editor.js 按 PNG 固有宽度 / renderWidth 设置，保留一个回退值 */
     width: 30%;
+    max-width: 100%;
+    height: auto;
     pointer-events: none;
     opacity: 0;
     transition: opacity 0.15s;

@@ -56,7 +56,8 @@ public class ScoreboardPreviewService {
                 snapshot.matchCompleted(),
                 snapshot.firstServer(),
                 renderWidth,
-                renderHeight
+                renderHeight,
+                snapshot.setScores()
         );
 
         ScoreboardTemplateRenderer renderer = rendererMap.get(snapshot.template());

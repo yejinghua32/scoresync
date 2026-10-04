@@ -112,7 +112,15 @@ function refreshScoreboardPreview() {
     const renderWidth = 960;
     const url = `/api/projects/${projectId}/scoreboard-preview?template=${template}&timeMs=${timeMs}&renderWidth=${renderWidth}`;
     previewImg.classList.remove('loaded');
-    previewImg.onload = () => previewImg.classList.add('loaded');
+    // 比分牌 PNG 宽度随可见局数变化，按固有宽度换算为视频帧的相对宽度，
+    // 保证浏览器叠加预览与导出视频中的比分牌占屏比例一致。
+    previewImg.onload = () => {
+        const naturalWidth = previewImg.naturalWidth;
+        if (Number.isInteger(naturalWidth) && naturalWidth > 0 && renderWidth > 0) {
+            previewImg.style.width = `${naturalWidth / renderWidth * 100}%`;
+        }
+        previewImg.classList.add('loaded');
+    };
     previewImg.src = url;
 }
 

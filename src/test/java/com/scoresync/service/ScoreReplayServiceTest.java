@@ -96,7 +96,8 @@ class ScoreReplayServiceTest {
         ReplayResult result = replay(2, points(PlayerSide.A, 11));
 
         assertThat(result.scoreboardCues().get(result.scoreboardCues().size() - 1))
-                .isEqualTo(new ScoreboardCue(10, 11, 2, 0, 0, 1, 0, false));
+                .isEqualTo(new ScoreboardCue(10, 11, 2, 0, 0, 1, 0, false,
+                        List.of(new SetScore(1, 11, 0), new SetScore(2, 0, 0))));
     }
 
     @Test
@@ -115,5 +116,72 @@ class ScoreReplayServiceTest {
         assertThat(finalCue.setWinsB()).isEqualTo(1);
         assertThat(finalCue.scoreA()).isEqualTo(11);
         assertThat(finalCue.scoreB()).isEqualTo(0);
+    }
+
+    @Test
+    void initialCueStartsWithFirstSetAtZeroZero() {
+        ReplayResult result = replay(4, List.of());
+
+        assertThat(result.scoreboardCues().get(0).setScores())
+                .containsExactly(new SetScore(1, 0, 0));
+    }
+
+    @Test
+    void cueAfterSetWinningPointKeepsFinalScoreAndAppendsFreshSet() {
+        ReplayResult result = replay(4, points(PlayerSide.A, 11));
+
+        List<ScoreboardCue> cues = result.scoreboardCues();
+        // 局末比分：已结束的局保留最终分
+        assertThat(cues.get(cues.size() - 2).setScores())
+                .containsExactly(new SetScore(1, 11, 0));
+        // 局胜点后生成的最后一个 cue：追加下一局 0-0
+        assertThat(cues.get(cues.size() - 1).setScores())
+                .containsExactly(new SetScore(1, 11, 0), new SetScore(2, 0, 0));
+    }
+
+    @Test
+    void finalCueWhenMatchEndsHasNoTrailingEmptySet() {
+        ReplayResult result = replay(2, concat(points(PlayerSide.A, 11), points(PlayerSide.B, 11), points(PlayerSide.A, 11)));
+
+        ScoreboardCue finalCue = result.scoreboardCues().get(result.scoreboardCues().size() - 1);
+        assertThat(finalCue.setScores()).containsExactly(
+                new SetScore(1, 11, 0),
+                new SetScore(2, 0, 11),
+                new SetScore(3, 11, 0));
+    }
+
+    @Test
+    void earlyCueSetScoresAreNotMutatedByLaterPoints() {
+        ReplayResult result = replay(2, points(PlayerSide.A, 12));
+
+        ScoreboardCue firstPointCue = result.scoreboardCues().get(1);
+        assertThat(firstPointCue.setScores()).containsExactly(new SetScore(1, 1, 0));
+        assertThat(result.scoreboardCues().get(result.scoreboardCues().size() - 1).setScores())
+                .containsExactly(new SetScore(1, 11, 0), new SetScore(2, 1, 0));
+    }
+
+    @Test
+    void keepsFullSetHistoryBeyondSevenSets() {
+        // 自定义赛制：5 胜制，双方交替各胜 4 局后第 9 局正在进行
+        List<ScoreEvent> events = new java.util.ArrayList<>();
+        long id = 1;
+        long time = 0;
+        for (int set = 1; set <= 8; set++) {
+            PlayerSide winner = set % 2 == 1 ? PlayerSide.A : PlayerSide.B;
+            for (int point = 0; point < 11; point++) {
+                events.add(event(id, time += 100, winner, id));
+                id++;
+            }
+        }
+
+        ReplayResult result = replay(5, events);
+
+        ScoreboardCue lastCue = result.scoreboardCues().get(result.scoreboardCues().size() - 1);
+        assertThat(result.matchCompleted()).isFalse();
+        assertThat(lastCue.setNumber()).isEqualTo(9);
+        assertThat(lastCue.setScores()).hasSize(9);
+        assertThat(lastCue.setScores().get(0)).isEqualTo(new SetScore(1, 11, 0));
+        assertThat(lastCue.setScores().get(7)).isEqualTo(new SetScore(8, 0, 11));
+        assertThat(lastCue.setScores().get(8)).isEqualTo(new SetScore(9, 0, 0));
     }
 }

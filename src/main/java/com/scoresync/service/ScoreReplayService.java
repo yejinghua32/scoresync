@@ -37,7 +37,11 @@ public class ScoreReplayService {
         List<DerivedScoreEvent> derivedEvents = new ArrayList<>();
         List<ScoreboardCue> scoreboardCues = new ArrayList<>();
 
-        scoreboardCues.add(new ScoreboardCue(0, 0, 1, 0, 0, 0, 0, false));
+        // 截至当前时刻已开始的逐局比分；cue 通过不可变副本冻结，不受后续得分影响
+        List<SetScore> setScores = new ArrayList<>();
+        setScores.add(new SetScore(1, 0, 0));
+
+        scoreboardCues.add(new ScoreboardCue(0, 0, 1, 0, 0, 0, 0, false, setScores));
 
         int setNo = 1;
         int scoreA = 0;
@@ -56,6 +60,7 @@ public class ScoreReplayService {
             } else {
                 scoreB++;
             }
+            updateCurrentSet(setScores, setNo, scoreA, scoreB);
 
             derivedEvents.add(new DerivedScoreEvent(
                     event.id(), event.videoTimeMs(), event.playerSide(), event.sequenceNo(),
@@ -64,7 +69,7 @@ public class ScoreReplayService {
 
             scoreboardCues.add(new ScoreboardCue(
                     event.videoTimeMs(), event.sequenceNo(), setNo, scoreA, scoreB,
-                    setWinsA, setWinsB, false
+                    setWinsA, setWinsB, false, setScores
             ));
 
             boolean setFinished = (scoreA >= 11 || scoreB >= 11) && Math.abs(scoreA - scoreB) >= 2;
@@ -78,17 +83,19 @@ public class ScoreReplayService {
                 }
                 if (setWinsA == targetWins || setWinsB == targetWins) {
                     matchCompleted = true;
+                    // 比赛结束：最后一局保留最终比分，不追加下一局
                     scoreboardCues.add(new ScoreboardCue(
                             event.videoTimeMs(), event.sequenceNo(), setNo, scoreA, scoreB,
-                            setWinsA, setWinsB, true
+                            setWinsA, setWinsB, true, setScores
                     ));
                 } else {
                     setNo++;
                     scoreA = 0;
                     scoreB = 0;
+                    setScores.add(new SetScore(setNo, 0, 0));
                     scoreboardCues.add(new ScoreboardCue(
                             event.videoTimeMs(), event.sequenceNo(), setNo, 0, 0,
-                            setWinsA, setWinsB, false
+                            setWinsA, setWinsB, false, setScores
                     ));
                 }
             }
@@ -96,5 +103,14 @@ public class ScoreReplayService {
 
         return new ReplayResult(completedSets, derivedEvents, setNo, scoreA, scoreB,
                 setWinsA, setWinsB, matchCompleted, scoreboardCues);
+    }
+
+    /**
+     * 更新逐局列表中最后一局（即当前局）的比分
+     */
+    private void updateCurrentSet(List<SetScore> setScores, int setNo, int scoreA, int scoreB) {
+        int lastIndex = setScores.size() - 1;
+        SetScore current = setScores.get(lastIndex);
+        setScores.set(lastIndex, new SetScore(current.setNumber(), scoreA, scoreB));
     }
 }

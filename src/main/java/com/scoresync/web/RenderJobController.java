@@ -78,7 +78,8 @@ public class RenderJobController {
                 snapshot.matchCompleted(),
                 snapshot.firstServer(),
                 snapshot.frameWidth(),
-                snapshot.frameHeight()
+                snapshot.frameHeight(),
+                snapshot.setScores()
         );
 
         byte[] pngData = previewService.generatePreview(previewSnapshot);
