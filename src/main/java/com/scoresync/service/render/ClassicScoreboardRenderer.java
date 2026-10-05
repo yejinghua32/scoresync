@@ -20,10 +20,10 @@ import java.util.List;
 @Component
 public class ClassicScoreboardRenderer implements ScoreboardTemplateRenderer {
 
-    private static final Color BLACK_BG = new Color(0, 0, 0, 235);
+    private static final Color BLACK_BG = new Color(0, 0, 0, 160);
     private static final Color HEADER_BG = new Color(0, 0, 0, 160);
     private static final Color YELLOW_BG = new Color(245, 190, 0);
-    private static final Color WINS_BG = new Color(211, 47, 47);
+    private static final Color WINS_BG = new Color(210, 80, 60);
     private static final Color WHITE = Color.WHITE;
     private static final Color YELLOW_DOT = new Color(255, 210, 0);
     private static final Color GREY = new Color(170, 170, 170);
@@ -56,7 +56,7 @@ public class ClassicScoreboardRenderer implements ScoreboardTemplateRenderer {
         int headerHeight = Math.max(6, (int) Math.round(height * 0.22));
         int rowGap = Math.max(1, (int) Math.round(3 * SetScoreLayout.scale(frameWidth)));
         int rowHeight = Math.max(1, (height - headerHeight - rowGap) / 2);
-        int dotSize = Math.max(2, (int) (rowHeight * 0.32));
+        int dotSize = Math.max(2, (int) (rowHeight * 0.38));
 
         int nameFontSize = Math.max(6, (int) (rowHeight * 0.46));
         int numberFontSize = Math.max(6, (int) (rowHeight * 0.52));
