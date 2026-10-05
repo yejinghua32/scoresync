@@ -77,6 +77,11 @@ public class ModernScoreboardRenderer implements ScoreboardTemplateRenderer {
 
         int currentSetNumber = sets.isEmpty() ? 0 : sets.get(sets.size() - 1).setNumber();
         int startX = margin;
+
+        // 先铺满与队名区相同的底色，使各列之间和两行之间的间隙不再透出视频画面
+        g.setColor(ROW_BG);
+        g.fillRect(startX, 0, width - margin * 2, height);
+
         int serveX = startX + nameWidth + gap;
         int winsX = serveX + serveColumnWidth + gap;
         int setsX = winsX + setWinsWidth + gap;

@@ -76,6 +76,10 @@ public class ClassicScoreboardRenderer implements ScoreboardTemplateRenderer {
 
         int currentSetNumber = sets.isEmpty() ? 0 : sets.get(sets.size() - 1).setNumber();
 
+        // 先铺满与队名区相同的底色，使各列之间和两行之间的间隙不再透出视频画面
+        g.setColor(BLACK_BG);
+        g.fillRect(margin, 0, width - margin * 2, height);
+
         // 表头：名称列留空，其余为“胜局”与各局号
         int headerX = margin;
         int headerServeX = headerX + nameWidth + gap;
