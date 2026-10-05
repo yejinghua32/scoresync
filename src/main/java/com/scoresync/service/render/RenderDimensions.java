@@ -6,7 +6,7 @@ package com.scoresync.service.render;
  */
 final class RenderDimensions {
 
-    private static final double BAR_HEIGHT_RATIO = 0.123;
+    private static final double BAR_HEIGHT_RATIO = 0.10;
     private static final int MIN_BAR_HEIGHT = 48;
 
     private RenderDimensions() {
