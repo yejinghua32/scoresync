@@ -20,16 +20,42 @@ document.addEventListener('DOMContentLoaded', async () => {
     renderTemplates();
 });
 
+const VIEWS = ['projects', 'videos', 'settings'];
+
+/**
+ * 切换主面板
+ * @param {string} view 面板标识
+ * @param {boolean} syncUrl 是否把当前面板同步到地址栏
+ */
+function switchView(view, syncUrl) {
+    if (!VIEWS.includes(view)) view = 'projects';
+    document.querySelectorAll('.nav-item').forEach(item => {
+        item.classList.toggle('active', item.dataset.view === view);
+    });
+    document.querySelectorAll('.view').forEach(v => {
+        v.classList.toggle('active', v.id === `view-${view}`);
+    });
+    if (syncUrl) {
+        const url = new URL(location.href);
+        url.searchParams.set('view', view);
+        history.replaceState(null, '', url);
+    }
+}
+
+/**
+ * 从地址栏读取要定位的面板
+ * 支持 /?view=projects|videos|settings，未指定时回到项目库
+ */
+function viewFromUrl() {
+    const requested = new URLSearchParams(location.search).get('view');
+    return VIEWS.includes(requested) ? requested : 'projects';
+}
+
 function initNavigation() {
     document.querySelectorAll('.nav-item').forEach(item => {
-        item.addEventListener('click', () => {
-            const view = item.dataset.view;
-            document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
-            item.classList.add('active');
-            document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
-            document.getElementById(`view-${view}`).classList.add('active');
-        });
+        item.addEventListener('click', () => switchView(item.dataset.view, true));
     });
+    switchView(viewFromUrl(), false);
 }
 
 async function loadTeamMembers() {
