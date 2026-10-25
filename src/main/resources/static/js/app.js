@@ -506,7 +506,7 @@ function openCreateModal(videoId) {
     document.getElementById('project-video-id').value = videoId;
     document.getElementById('project-form').reset();
     document.getElementById('project-video-id').value = videoId;
-    document.getElementById('format-preset').value = '3';
+    document.getElementById('format-preset').value = '2';
     document.getElementById('custom-target-wins-group').classList.add('hidden');
     document.getElementById('modal-submit').disabled = false;
 
