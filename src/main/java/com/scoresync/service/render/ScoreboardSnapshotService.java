@@ -1,6 +1,7 @@
 package com.scoresync.service.render;
 
 import com.scoresync.domain.MatchProject;
+import com.scoresync.domain.PlayerSide;
 import com.scoresync.domain.ScoreboardCue;
 import com.scoresync.domain.ScoreboardSnapshot;
 import org.springframework.stereotype.Service;
@@ -33,6 +34,7 @@ public class ScoreboardSnapshotService {
         Comparator<ScoreboardCue> byTime = Comparator.comparingLong(ScoreboardCue::startTimeMs)
                 .thenComparingLong(ScoreboardCue::sequenceNo);
         ScoreboardCue lastCue = null;
+        ScoreboardCue lastScoringCue = null;
         for (ScoreboardCue cue : cues) {
             if (cue.startTimeMs() > effectiveTime) {
                 continue;
@@ -40,10 +42,18 @@ public class ScoreboardSnapshotService {
             if (lastCue == null || byTime.compare(cue, lastCue) >= 0) {
                 lastCue = cue;
             }
+            if (cue.scoredSide() != null
+                    && (lastScoringCue == null || byTime.compare(cue, lastScoringCue) >= 0)) {
+                lastScoringCue = cue;
+            }
         }
         if (lastCue == null) {
             lastCue = cues.get(cues.size() - 1);
         }
+
+        // 高亮持续到下一次比分变化：取最近一次真实得分事件，
+        // 连续得分以最后一次为准并重新开始高亮
+        PlayerSide highlightedSide = lastScoringCue == null ? null : lastScoringCue.scoredSide();
 
         return new ScoreboardSnapshot(
                 project.scoreboardTemplate(),
@@ -58,7 +68,8 @@ public class ScoreboardSnapshotService {
                 project.firstServer(),
                 frameWidth,
                 frameHeight,
-                lastCue.setScores()
+                lastCue.setScores(),
+                highlightedSide
         );
     }
 }

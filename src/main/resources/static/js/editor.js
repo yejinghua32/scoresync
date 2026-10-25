@@ -27,6 +27,7 @@ let activeJobId = null;
 let pollTimer = null;
 let lastPreviewKey = null;
 let previewRequestToken = 0;
+let stateVersion = 0;
 
 /**
  * 把视频的原始尺寸写入舞台
@@ -101,6 +102,8 @@ function applyTeamNames(project) {
 
 function renderState(state) {
     currentState = state;
+    // 比分牌画面随得分状态变化；版本号用于在状态更新后强制刷新叠加图
+    stateVersion += 1;
     applyTeamNames(state.project);
     document.getElementById('current-set').textContent = `当前局数: ${state.match.currentSetNo}  |  ${state.match.currentScoreA} - ${state.match.currentScoreB}`;
     document.getElementById('set-wins').textContent = `A胜: ${state.match.setWinsA} 局  |  B胜: ${state.match.setWinsB} 局`;
@@ -147,7 +150,10 @@ function refreshScoreboardPreview() {
     // 与导出保持一致：比分牌只从首个真实得分时刻起显示，之前（含无得分事件）不叠加
     const firstScoreMs = firstScoreTimeMs();
     const visible = firstScoreMs !== null && videoTimeMs >= firstScoreMs;
-    const previewKey = `${template}|${firstServer}|${timeMs}|${sequenceNo}|${visible}`;
+    // 键里不含 timeMs：播放时按 timeupdate 反复重取会让叠加图不停淡出淡入，
+    // 比分牌与得分高亮都会闪烁。比分牌只在得分或状态更新时变化，
+    // 因此用 stateVersion（状态更新）与 sequenceNo（播放位置跨越得分点）作为刷新依据。
+    const previewKey = `${template}|${firstServer}|${stateVersion}|${sequenceNo}|${visible}`;
     if (previewKey === lastPreviewKey) return;
     lastPreviewKey = previewKey;
 

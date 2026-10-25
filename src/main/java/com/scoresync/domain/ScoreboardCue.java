@@ -15,13 +15,25 @@ import java.util.List;
  * @param setWinsB       B 方已胜局数
  * @param matchCompleted 比赛是否已完成
  * @param setScores      截至该时间点已开始的逐局比分（按局号升序，不可变）
+ * @param scoredSide     产生该提示点的得分方；初始 0:0 提示点为 null
  */
 public record ScoreboardCue(long startTimeMs, long sequenceNo, int setNumber,
                             int scoreA, int scoreB, int setWinsA, int setWinsB,
-                            boolean matchCompleted, List<SetScore> setScores) {
+                            boolean matchCompleted, List<SetScore> setScores,
+                            PlayerSide scoredSide) {
 
     public ScoreboardCue {
         setScores = setScores == null ? List.of() : List.copyOf(setScores);
+    }
+
+    /**
+     * 保留既有调用方式：逐局比分已知、得分方未知
+     */
+    public ScoreboardCue(long startTimeMs, long sequenceNo, int setNumber,
+                         int scoreA, int scoreB, int setWinsA, int setWinsB,
+                         boolean matchCompleted, List<SetScore> setScores) {
+        this(startTimeMs, sequenceNo, setNumber, scoreA, scoreB, setWinsA, setWinsB,
+                matchCompleted, setScores, null);
     }
 
     /**
@@ -31,6 +43,6 @@ public record ScoreboardCue(long startTimeMs, long sequenceNo, int setNumber,
                          int scoreA, int scoreB, int setWinsA, int setWinsB,
                          boolean matchCompleted) {
         this(startTimeMs, sequenceNo, setNumber, scoreA, scoreB, setWinsA, setWinsB,
-                matchCompleted, List.of(new SetScore(setNumber, scoreA, scoreB)));
+                matchCompleted, List.of(new SetScore(setNumber, scoreA, scoreB)), null);
     }
 }

@@ -69,7 +69,7 @@ public class ScoreReplayService {
 
             scoreboardCues.add(new ScoreboardCue(
                     event.videoTimeMs(), event.sequenceNo(), setNo, scoreA, scoreB,
-                    setWinsA, setWinsB, false, setScores
+                    setWinsA, setWinsB, false, setScores, event.playerSide()
             ));
 
             boolean setFinished = (scoreA >= 11 || scoreB >= 11) && Math.abs(scoreA - scoreB) >= 2;
@@ -86,7 +86,7 @@ public class ScoreReplayService {
                     // 比赛结束：最后一局保留最终比分，不追加下一局
                     scoreboardCues.add(new ScoreboardCue(
                             event.videoTimeMs(), event.sequenceNo(), setNo, scoreA, scoreB,
-                            setWinsA, setWinsB, true, setScores
+                            setWinsA, setWinsB, true, setScores, event.playerSide()
                     ));
                 } else {
                     setNo++;
@@ -95,7 +95,7 @@ public class ScoreReplayService {
                     setScores.add(new SetScore(setNo, 0, 0));
                     scoreboardCues.add(new ScoreboardCue(
                             event.videoTimeMs(), event.sequenceNo(), setNo, 0, 0,
-                            setWinsA, setWinsB, false, setScores
+                            setWinsA, setWinsB, false, setScores, event.playerSide()
                     ));
                 }
             }

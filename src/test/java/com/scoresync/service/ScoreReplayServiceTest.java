@@ -86,9 +86,49 @@ class ScoreReplayServiceTest {
 
         assertThat(result.scoreboardCues()).containsExactly(
                 new ScoreboardCue(0, 0, 1, 0, 0, 0, 0, false),
-                new ScoreboardCue(1_000, 1, 1, 1, 0, 0, 0, false),
-                new ScoreboardCue(2_000, 2, 1, 1, 1, 0, 0, false)
+                new ScoreboardCue(1_000, 1, 1, 1, 0, 0, 0, false, List.of(new SetScore(1, 1, 0)), PlayerSide.A),
+                new ScoreboardCue(2_000, 2, 1, 1, 1, 0, 0, false, List.of(new SetScore(1, 1, 1)), PlayerSide.B)
         );
+    }
+
+    @Test
+    void initialCueCarriesNoScoringSide() {
+        ReplayResult result = replay(2, List.of(event(1, 1_000, PlayerSide.A, 1)));
+
+        assertThat(result.scoreboardCues().get(0).scoredSide()).isNull();
+    }
+
+    @Test
+    void pointCueCarriesScoringSide() {
+        ReplayResult result = replay(2, List.of(
+                event(1, 1_000, PlayerSide.A, 1),
+                event(2, 2_000, PlayerSide.B, 2)
+        ));
+
+        assertThat(result.scoreboardCues().get(1).scoredSide()).isEqualTo(PlayerSide.A);
+        assertThat(result.scoreboardCues().get(2).scoredSide()).isEqualTo(PlayerSide.B);
+    }
+
+    @Test
+    void setWinningPointKeepsScoringSideOnFollowingNewSetCue() {
+        ReplayResult result = replay(2, points(PlayerSide.A, 11));
+
+        List<ScoreboardCue> cues = result.scoreboardCues();
+        // 局末得分 cue 与其后新局 0-0 cue 属于同一得分事件，均标记 A 方
+        assertThat(cues.get(cues.size() - 2).scoredSide()).isEqualTo(PlayerSide.A);
+        assertThat(cues.get(cues.size() - 1).scoredSide()).isEqualTo(PlayerSide.A);
+    }
+
+    @Test
+    void matchCompletedCueKeepsScoringSide() {
+        ReplayResult result = replay(2, concat(points(PlayerSide.A, 11), points(PlayerSide.B, 11), points(PlayerSide.A, 11)));
+
+        ScoreboardCue finalCue = result.scoreboardCues().stream()
+                .filter(ScoreboardCue::matchCompleted)
+                .findFirst()
+                .orElseThrow();
+
+        assertThat(finalCue.scoredSide()).isEqualTo(PlayerSide.A);
     }
 
     @Test
@@ -97,7 +137,7 @@ class ScoreReplayServiceTest {
 
         assertThat(result.scoreboardCues().get(result.scoreboardCues().size() - 1))
                 .isEqualTo(new ScoreboardCue(10, 11, 2, 0, 0, 1, 0, false,
-                        List.of(new SetScore(1, 11, 0), new SetScore(2, 0, 0))));
+                        List.of(new SetScore(1, 11, 0), new SetScore(2, 0, 0)), PlayerSide.A));
     }
 
     @Test

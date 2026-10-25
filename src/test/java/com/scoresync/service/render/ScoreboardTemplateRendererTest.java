@@ -44,6 +44,56 @@ class ScoreboardTemplateRendererTest {
                 PlayerSide.A, frameWidth, frameWidth * 9 / 16, List.of(new SetScore(1, 11, 9)));
     }
 
+    private ScoreboardSnapshot highlightedSnapshot(ScoreboardTemplate template, PlayerSide side) {
+        return highlightedSnapshot(template, side, 1920);
+    }
+
+    private ScoreboardSnapshot highlightedSnapshot(ScoreboardTemplate template, PlayerSide side, int frameWidth) {
+        return new ScoreboardSnapshot(template, "Player A", "Player B", 5, 3, 2, 1, 0, false, PlayerSide.A,
+                frameWidth, frameWidth * 9 / 16, List.of(new SetScore(1, 11, 8), new SetScore(2, 5, 3)), side);
+    }
+
+    /**
+     * 统计与高亮颜色足够接近的像素，返回 [数量, 最小X, 最小Y, 最大X, 最大Y]
+     */
+    private int[] highlightBounds(BufferedImage image) {
+        java.awt.Color target = SetScoreLayout.HIGHLIGHT_COLOR;
+        int minX = Integer.MAX_VALUE;
+        int minY = Integer.MAX_VALUE;
+        int maxX = Integer.MIN_VALUE;
+        int maxY = Integer.MIN_VALUE;
+        int count = 0;
+        for (int y = 0; y < image.getHeight(); y++) {
+            for (int x = 0; x < image.getWidth(); x++) {
+                java.awt.Color pixel = new java.awt.Color(image.getRGB(x, y), true);
+                if (Math.abs(pixel.getRed() - target.getRed()) <= 24
+                        && Math.abs(pixel.getGreen() - target.getGreen()) <= 24
+                        && Math.abs(pixel.getBlue() - target.getBlue()) <= 24) {
+                    count++;
+                    minX = Math.min(minX, x);
+                    minY = Math.min(minY, y);
+                    maxX = Math.max(maxX, x);
+                    maxY = Math.max(maxY, y);
+                }
+            }
+        }
+        if (count == 0) {
+            return null;
+        }
+        return new int[]{count, minX, minY, maxX, maxY};
+    }
+
+    private boolean pixelsDiffer(BufferedImage left, BufferedImage right) {
+        for (int y = 0; y < left.getHeight(); y++) {
+            for (int x = 0; x < left.getWidth(); x++) {
+                if (left.getRGB(x, y) != right.getRGB(x, y)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
     @Test
     void classicRendererProducesPngWithTransparency() throws Exception {
         ClassicScoreboardRenderer renderer = new ClassicScoreboardRenderer();
@@ -117,6 +167,73 @@ class ScoreboardTemplateRendererTest {
 
         assertThat(classic.template()).isEqualTo(ScoreboardTemplate.CLASSIC);
         assertThat(modern.template()).isEqualTo(ScoreboardTemplate.MODERN);
+    }
+
+    @Test
+    void noHighlightSideRendersWithoutHighlightPixels() {
+        BufferedImage classic = new ClassicScoreboardRenderer()
+                .render(snapshot(ScoreboardTemplate.CLASSIC));
+        BufferedImage modern = new ModernScoreboardRenderer()
+                .render(snapshot(ScoreboardTemplate.MODERN));
+
+        assertThat(highlightBounds(classic)).isNull();
+        assertThat(highlightBounds(modern)).isNull();
+    }
+
+    @Test
+    void highlightedSideDrawsHighlightInBothTemplates() {
+        BufferedImage classic = new ClassicScoreboardRenderer()
+                .render(highlightedSnapshot(ScoreboardTemplate.CLASSIC, PlayerSide.A));
+        BufferedImage modern = new ModernScoreboardRenderer()
+                .render(highlightedSnapshot(ScoreboardTemplate.MODERN, PlayerSide.A));
+
+        assertThat(highlightBounds(classic)).isNotNull();
+        assertThat(highlightBounds(modern)).isNotNull();
+    }
+
+    @Test
+    void highlightForSideAIsAboveHighlightForSideB() {
+        BufferedImage sideA = new ClassicScoreboardRenderer()
+                .render(highlightedSnapshot(ScoreboardTemplate.CLASSIC, PlayerSide.A));
+        BufferedImage sideB = new ClassicScoreboardRenderer()
+                .render(highlightedSnapshot(ScoreboardTemplate.CLASSIC, PlayerSide.B));
+        int[] aBounds = highlightBounds(sideA);
+        int[] bBounds = highlightBounds(sideB);
+
+        assertThat(aBounds).isNotNull();
+        assertThat(bBounds).isNotNull();
+        // A 行在上、B 行在下，两处高亮不重叠
+        assertThat(aBounds[4]).isLessThan(bBounds[2]);
+    }
+
+    @Test
+    void highlightChangesTheRenderedImageOnlyWhenPresent() {
+        BufferedImage plain = new ClassicScoreboardRenderer()
+                .render(snapshot(ScoreboardTemplate.CLASSIC));
+        BufferedImage highlighted = new ClassicScoreboardRenderer()
+                .render(highlightedSnapshot(ScoreboardTemplate.CLASSIC, PlayerSide.A));
+
+        assertThat(plain.getWidth()).isEqualTo(highlighted.getWidth());
+        assertThat(plain.getHeight()).isEqualTo(highlighted.getHeight());
+        assertThat(pixelsDiffer(plain, highlighted)).isTrue();
+    }
+
+    @Test
+    void compactHighlightStaysInsideTheBoard() {
+        for (ScoreboardTemplate template : ScoreboardTemplate.values()) {
+            ScoreboardTemplateRenderer renderer = template == ScoreboardTemplate.CLASSIC
+                    ? new ClassicScoreboardRenderer()
+                    : new ModernScoreboardRenderer();
+            BufferedImage image = renderer
+                    .render(highlightedSnapshot(template, PlayerSide.B, 320));
+            int[] bounds = highlightBounds(image);
+
+            assertThat(bounds).isNotNull();
+            assertThat(bounds[1]).isGreaterThanOrEqualTo(0);
+            assertThat(bounds[2]).isGreaterThanOrEqualTo(0);
+            assertThat(bounds[3]).isLessThan(image.getWidth());
+            assertThat(bounds[4]).isLessThan(image.getHeight());
+        }
     }
 
     private int countTransparentPixels(BufferedImage image) {

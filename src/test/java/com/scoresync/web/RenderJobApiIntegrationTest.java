@@ -33,6 +33,7 @@ class RenderJobApiIntegrationTest {
     private MatchProjectRepository projects;
     private long projectId;
     private FakeRenderJobService fakeRenderService;
+    private ScoreEventRepository events;
 
     @BeforeEach
     void setUp() throws Exception {
@@ -83,7 +84,7 @@ class RenderJobApiIntegrationTest {
         sources = new VideoSourceRepository(jdbc);
         assets = new VideoAssetRepository(jdbc);
         projects = new MatchProjectRepository(jdbc);
-        ScoreEventRepository events = new ScoreEventRepository(jdbc);
+        events = new ScoreEventRepository(jdbc);
         RenderJobRepository renderJobs = new RenderJobRepository(jdbc);
 
         VideoSource source = sources.insert("/videos");
@@ -124,6 +125,54 @@ class RenderJobApiIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.IMAGE_PNG))
                 .andExpect(result -> assertThat(result.getResponse().getContentAsByteArray()).isNotEmpty());
+    }
+
+    @Test
+    void getScoreboardPreview_shouldHighlightTheSideThatScored() throws Exception {
+        events.insert(projectId, 5_000L, com.scoresync.domain.PlayerSide.A);
+
+        byte[] png = mockMvc.perform(get("/api/projects/{id}/scoreboard-preview", projectId)
+                        .param("template", "CLASSIC")
+                        .param("timeMs", "5000")
+                        .param("renderWidth", "960"))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsByteArray();
+
+        assertThat(hasHighlight(png)).isTrue();
+    }
+
+    @Test
+    void getScoreboardPreview_shouldNotHighlightBeforeTheFirstScore() throws Exception {
+        events.insert(projectId, 5_000L, com.scoresync.domain.PlayerSide.A);
+
+        byte[] png = mockMvc.perform(get("/api/projects/{id}/scoreboard-preview", projectId)
+                        .param("template", "CLASSIC")
+                        .param("timeMs", "0")
+                        .param("renderWidth", "960"))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsByteArray();
+
+        assertThat(hasHighlight(png)).isFalse();
+    }
+
+    private boolean hasHighlight(byte[] png) throws Exception {
+        java.awt.image.BufferedImage image = javax.imageio.ImageIO.read(new java.io.ByteArrayInputStream(png));
+        java.awt.Color target = SetScoreLayout.HIGHLIGHT_COLOR;
+        for (int y = 0; y < image.getHeight(); y++) {
+            for (int x = 0; x < image.getWidth(); x++) {
+                java.awt.Color p = new java.awt.Color(image.getRGB(x, y), true);
+                if (Math.abs(p.getRed() - target.getRed()) <= 24
+                        && Math.abs(p.getGreen() - target.getGreen()) <= 24
+                        && Math.abs(p.getBlue() - target.getBlue()) <= 24) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     @Test

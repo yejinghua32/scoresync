@@ -2,6 +2,7 @@ package com.scoresync.service.render;
 
 import com.scoresync.domain.SetScore;
 
+import java.awt.BasicStroke;
 import java.awt.Color;
 import java.awt.Font;
 import java.awt.FontMetrics;
@@ -13,10 +14,18 @@ import java.util.List;
  * 集中计算最近 7 局窗口与各列宽度，保证经典与现代模板
  * 使用同一份窗口和宽度算法，仅配色与强调方式不同。
  */
-final class SetScoreLayout {
+public final class SetScoreLayout {
 
     /** 最多展示的局数（显示最近 7 局） */
     static final int MAX_VISIBLE_SETS = 7;
+
+    /**
+     * 得分高亮颜色
+     *
+     * <p>亮绿色与比分牌已有的黄/橙强调色、红色胜局列区分明显，
+     * 在经典黑底与现代深色底模板上都能清晰辨认。
+     */
+    public static final Color HIGHLIGHT_COLOR = new Color(52, 211, 153);
 
     /** 1920 宽基准下各部分占视频帧宽度的比例 */
     private static final double MARGIN_RATIO = 8 / 1920.0;
@@ -123,6 +132,35 @@ final class SetScoreLayout {
      */
     static double scale(int frameWidth) {
         return frameWidth / 1920.0;
+    }
+
+    /**
+     * 计算比分牌一行的右边界：队名列、发球列、胜局列与各逐局列的总宽
+     */
+    static int rowRight(int startX, int nameWidth, int serveColumnWidth, int setWinsWidth,
+                        int setColumnWidth, int gap, int setCount) {
+        int setsX = startX + nameWidth + gap + serveColumnWidth + gap + setWinsWidth + gap;
+        return setsX + setCount * setColumnWidth + Math.max(0, setCount - 1) * gap;
+    }
+
+    /**
+     * 绘制得分队整行高亮描边。
+     *
+     * <p>描边贴着比分牌行的外沿绘制，并整体内缩半个线宽，
+     * 因此既不会越出画布，也不会遮挡队名、发球标识和比分数字。
+     */
+    static void drawRowHighlight(Graphics2D g, int startX, int y, int rowHeight, int rowRight,
+                                 int cornerRadius, int frameWidth, Color color) {
+        int stroke = Math.max(2, (int) Math.round(4 * scale(frameWidth)));
+        int inset = stroke / 2;
+        int width = rowRight - startX - stroke;
+        int height = rowHeight - stroke;
+        if (width <= 0 || height <= 0) {
+            return;
+        }
+        g.setStroke(new BasicStroke(stroke));
+        g.setColor(color);
+        g.drawRoundRect(startX + inset, y + inset, width, height, cornerRadius, cornerRadius);
     }
 
     private static int scaled(int frameWidth, double ratio) {

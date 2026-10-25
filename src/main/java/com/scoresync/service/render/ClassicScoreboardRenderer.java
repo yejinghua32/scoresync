@@ -109,6 +109,15 @@ public class ClassicScoreboardRenderer implements ScoreboardTemplateRenderer {
                 servingSide != null && servingSide == PlayerSide.B, currentSetNumber, snapshot.matchCompleted(),
                 PlayerSide.B);
 
+        // 得分方整行高亮描边：标示最近一次得分，直到下一次比分变化
+        if (snapshot.highlightedSide() != null) {
+            int rowRight = SetScoreLayout.rowRight(headerX, nameWidth, serveColumnWidth, setWinsWidth,
+                    setColumnWidth, gap, sets.size());
+            int highlightY = snapshot.highlightedSide() == PlayerSide.A ? rowAY : rowBY;
+            SetScoreLayout.drawRowHighlight(g, headerX, highlightY, rowHeight, rowRight,
+                    cornerRadius, frameWidth, SetScoreLayout.HIGHLIGHT_COLOR);
+        }
+
         g.dispose();
         return image;
     }

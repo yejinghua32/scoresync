@@ -19,16 +19,30 @@ import java.util.List;
  * @param frameWidth     视频帧宽度
  * @param frameHeight    视频帧高度
  * @param setScores      截至该时间点已开始的逐局比分（按局号升序，不可变）
+ * @param highlightedSide 当前需要突出显示的得分方；无高亮时为 null
  */
 public record ScoreboardSnapshot(ScoreboardTemplate template, String playerA, String playerB,
                                  int scoreA, int scoreB, int setNumber,
                                  int setWinsA, int setWinsB, boolean matchCompleted,
                                  PlayerSide firstServer,
                                  int frameWidth, int frameHeight,
-                                 List<SetScore> setScores) {
+                                 List<SetScore> setScores,
+                                 PlayerSide highlightedSide) {
 
     public ScoreboardSnapshot {
         setScores = setScores == null ? List.of() : List.copyOf(setScores);
+    }
+
+    /**
+     * 保留既有调用方式：逐局比分已知、无高亮
+     */
+    public ScoreboardSnapshot(ScoreboardTemplate template, String playerA, String playerB,
+                              int scoreA, int scoreB, int setNumber,
+                              int setWinsA, int setWinsB, boolean matchCompleted,
+                              PlayerSide firstServer, int frameWidth, int frameHeight,
+                              List<SetScore> setScores) {
+        this(template, playerA, playerB, scoreA, scoreB, setNumber, setWinsA, setWinsB,
+                matchCompleted, firstServer, frameWidth, frameHeight, setScores, null);
     }
 
     /**
@@ -40,6 +54,6 @@ public record ScoreboardSnapshot(ScoreboardTemplate template, String playerA, St
                               PlayerSide firstServer, int frameWidth, int frameHeight) {
         this(template, playerA, playerB, scoreA, scoreB, setNumber, setWinsA, setWinsB,
                 matchCompleted, firstServer, frameWidth, frameHeight,
-                List.of(new SetScore(setNumber, scoreA, scoreB)));
+                List.of(new SetScore(setNumber, scoreA, scoreB)), null);
     }
 }
