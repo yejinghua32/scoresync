@@ -127,11 +127,11 @@
             <div class="form-row">
                 <div class="form-group">
                     <label>选手 A</label>
-                    <select id="player-a" required></select>
+                    <input type="text" id="player-a" list="player-options" required placeholder="选择或输入队名">
                 </div>
                 <div class="form-group">
                     <label>选手 B</label>
-                    <select id="player-b" required></select>
+                    <input type="text" id="player-b" list="player-options" required placeholder="选择或输入队名">
                 </div>
             </div>
             <div class="form-group">
@@ -201,11 +201,11 @@
             <div class="form-row">
                 <div class="form-group">
                     <label>选手 A</label>
-                    <select id="edit-player-a" required></select>
+                    <input type="text" id="edit-player-a" list="edit-player-options" required placeholder="选择或输入队名">
                 </div>
                 <div class="form-group">
                     <label>选手 B</label>
-                    <select id="edit-player-b" required></select>
+                    <input type="text" id="edit-player-b" list="edit-player-options" required placeholder="选择或输入队名">
                 </div>
             </div>
             <div class="form-group">
@@ -227,6 +227,9 @@
         </form>
     </div>
 </div>
+
+<datalist id="player-options"></datalist>
+<datalist id="edit-player-options"></datalist>
 
 <div id="toast-host" class="toast-host"></div>
 

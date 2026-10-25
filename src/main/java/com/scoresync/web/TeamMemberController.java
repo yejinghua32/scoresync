@@ -40,14 +40,21 @@ public class TeamMemberController {
 
     /**
      * 创建新队员
+     * 名称为空或重复时返回业务校验错误
      */
     @PostMapping
     public ResponseEntity<TeamMember> create(@RequestBody CreateRequest request) {
-        if (request.name() == null || request.name().isBlank()) {
-            throw new IllegalArgumentException("队员名称不能为空");
-        }
-        TeamMember created = service.create(request.name().trim());
+        TeamMember created = service.create(request.name());
         return ResponseEntity.created(URI.create("/api/team-members/" + created.id())).body(created);
+    }
+
+    /**
+     * 确保队名已登记
+     * 已存在时直接返回已有队员，不会重复登记
+     */
+    @PostMapping("/ensure")
+    public TeamMember ensure(@RequestBody CreateRequest request) {
+        return service.ensureExists(request.name());
     }
 
     /**

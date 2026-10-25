@@ -471,14 +471,34 @@ function renderVideos() {
     }).join('');
 }
 
+/**
+ * 填充队名候选列表
+ * 输入框既能选择已有队名，也能直接输入自定义队名
+ */
 function populatePlayerSelects() {
-    const selectA = document.getElementById('player-a');
-    const selectB = document.getElementById('player-b');
-    const options = teamMembers.map(m => `<option value="${escapeHtml(m.name)}">${escapeHtml(m.name)}</option>`).join('');
-    selectA.innerHTML = options;
-    selectB.innerHTML = options;
-    if (teamMembers.length >= 2) {
-        selectB.selectedIndex = 1;
+    const options = teamMembers.map(m => `<option value="${escapeHtml(m.name)}"></option>`).join('');
+    const createList = document.getElementById('player-options');
+    if (createList) createList.innerHTML = options;
+    const editList = document.getElementById('edit-player-options');
+    if (editList) editList.innerHTML = options;
+}
+
+/**
+ * 确保自定义队名已登记到队员列表
+ * 已在列表中的队名跳过；登记失败不阻断项目创建，仅提示
+ */
+async function ensureTeamMembersRegistered(names) {
+    for (const name of names) {
+        if (!name || teamMembers.some(m => m.name === name)) continue;
+        try {
+            const member = await api('/api/team-members/ensure', {
+                method: 'POST',
+                body: JSON.stringify({name})
+            });
+            teamMembers.push(member);
+        } catch (e) {
+            showToast(`队名「${name}」未能加入队员列表：${e.message}`, 'warning');
+        }
     }
 }
 
@@ -491,6 +511,9 @@ function openCreateModal(videoId) {
     document.getElementById('modal-submit').disabled = false;
 
     populatePlayerSelects();
+    // 已有队员时预填前两名，省去重复输入
+    document.getElementById('player-a').value = teamMembers[0] ? teamMembers[0].name : '';
+    document.getElementById('player-b').value = teamMembers[1] ? teamMembers[1].name : '';
 
     const asset = assets.find(a => a.id === videoId);
     if (!asset) {
@@ -549,15 +572,23 @@ document.getElementById('project-form').addEventListener('submit', async (e) => 
         return;
     }
 
+    const playerA = form['player-a'].value.trim();
+    const playerB = form['player-b'].value.trim();
+    if (!playerA || !playerB) {
+        showToast('请填写双方队名', 'error');
+        return;
+    }
+
     try {
+        await ensureTeamMembersRegistered([playerA, playerB]);
         const project = await api('/api/projects', {
             method: 'POST',
             body: JSON.stringify({
                 name: form['project-name'].value.trim(),
                 videoId: Number(form['project-video-id'].value),
                 durationMs: Number(form['project-duration-ms'].value),
-                playerA: form['player-a'].value.trim(),
-                playerB: form['player-b'].value.trim(),
+                playerA: playerA,
+                playerB: playerB,
                 targetWins: targetWins
             })
         });
@@ -622,13 +653,6 @@ document.getElementById('export-backup-all').addEventListener('click', async () 
     }
 });
 
-function populateEditPlayerSelects() {
-    const selectA = document.getElementById('edit-player-a');
-    const selectB = document.getElementById('edit-player-b');
-    const options = teamMembers.map(m => `<option value="${escapeHtml(m.name)}">${escapeHtml(m.name)}</option>`).join('');
-    selectA.innerHTML = options;
-    selectB.innerHTML = options;
-}
 
 window.openEditModal = async function (event, id) {
     if (event) event.stopPropagation();
@@ -639,9 +663,9 @@ window.openEditModal = async function (event, id) {
     }
     document.getElementById('edit-project-id').value = id;
     document.getElementById('edit-project-name').value = project.name;
-    populateEditPlayerSelects();
-    document.getElementById('edit-player-a').value = project.playerA;
-    document.getElementById('edit-player-b').value = project.playerB;
+    populatePlayerSelects();
+    document.getElementById('edit-player-a').value = project.playerA || '';
+    document.getElementById('edit-player-b').value = project.playerB || '';
     const preset = project.targetWins;
     if (preset >= 2 && preset <= 4) {
         document.getElementById('edit-format-preset').value = preset;
@@ -681,13 +705,21 @@ document.getElementById('edit-project-form').addEventListener('submit', async (e
         return;
     }
 
+    const playerA = document.getElementById('edit-player-a').value.trim();
+    const playerB = document.getElementById('edit-player-b').value.trim();
+    if (!playerA || !playerB) {
+        showToast('请填写双方队名', 'error');
+        return;
+    }
+
     try {
+        await ensureTeamMembersRegistered([playerA, playerB]);
         await api(`/api/projects/${id}`, {
             method: 'PUT',
             body: JSON.stringify({
                 name: document.getElementById('edit-project-name').value.trim(),
-                playerA: document.getElementById('edit-player-a').value,
-                playerB: document.getElementById('edit-player-b').value,
+                playerA: playerA,
+                playerB: playerB,
                 targetWins: targetWins
             })
         });
