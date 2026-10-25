@@ -80,13 +80,15 @@ public class ClassicScoreboardRenderer implements ScoreboardTemplateRenderer {
         g.setColor(BLACK_BG);
         g.fillRect(margin, 0, width - margin * 2, height);
 
-        // 表头：名称列留空，其余为“胜局”与各局号
+        // 表头：名称列留空，其余为“发球”“胜局”与各局号
         int headerX = margin;
         int headerServeX = headerX + nameWidth + gap;
         int headerWinsX = headerServeX + serveColumnWidth + gap;
         int headerSetsX = headerWinsX + setWinsWidth + gap;
         g.setColor(HEADER_BG);
         g.fillRect(headerX, 0, width - margin * 2, headerHeight);
+        SetScoreLayout.drawCellText(g, "发球", headerFont, GREY,
+                headerServeX, 0, serveColumnWidth, headerHeight);
         SetScoreLayout.drawCellText(g, "胜局", headerFont, GREY, headerWinsX, 0, setWinsWidth, headerHeight);
         for (int i = 0; i < sets.size(); i++) {
             SetScore set = sets.get(i);

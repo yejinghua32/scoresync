@@ -44,6 +44,12 @@ class ScoreboardTemplateRendererTest {
                 PlayerSide.A, frameWidth, frameWidth * 9 / 16, List.of(new SetScore(1, 11, 9)));
     }
 
+    private ScoreboardSnapshot mediumSnapshot(ScoreboardTemplate template) {
+        return new ScoreboardSnapshot(template, "Player A", "Player B",
+                5, 3, 2, 1, 0, false, PlayerSide.A, 960, 540,
+                List.of(new SetScore(1, 11, 8), new SetScore(2, 5, 3)));
+    }
+
     private ScoreboardSnapshot highlightedSnapshot(ScoreboardTemplate template, PlayerSide side) {
         return highlightedSnapshot(template, side, 1920);
     }
@@ -234,6 +240,88 @@ class ScoreboardTemplateRendererTest {
             assertThat(bounds[3]).isLessThan(image.getWidth());
             assertThat(bounds[4]).isLessThan(image.getHeight());
         }
+    }
+
+    /**
+     * 统计指定矩形内的浅色像素数量，用于判断表头是否绘制了文字
+     */
+    private int countLightPixels(BufferedImage image, int x0, int y0, int x1, int y1) {
+        int count = 0;
+        for (int y = y0; y < y1; y++) {
+            for (int x = x0; x < x1; x++) {
+                java.awt.Color p = new java.awt.Color(image.getRGB(x, y), true);
+                if (p.getRed() > 100 && p.getAlpha() > 200) {
+                    count++;
+                }
+            }
+        }
+        return count;
+    }
+
+    /**
+     * 发球列表头所在单元格的矩形范围
+     */
+    private int[] serveHeaderCell(int frameWidth, int frameHeight) {
+        int barHeight = RenderDimensions.barHeight(frameWidth, frameHeight);
+        int headerHeight = Math.max(6, (int) Math.round(barHeight * 0.22));
+        int serveX = SetScoreLayout.margin(frameWidth)
+                + SetScoreLayout.nameWidth(frameWidth)
+                + SetScoreLayout.gap(frameWidth);
+        return new int[]{serveX, 0,
+                serveX + SetScoreLayout.serveColumnWidth(frameWidth), headerHeight};
+    }
+
+    @Test
+    void serveColumnHeaderShowsLabelInBothTemplates() {
+        int[] cell = serveHeaderCell(1920, 1080);
+
+        int classic = countLightPixels(
+                new ClassicScoreboardRenderer().render(snapshot(ScoreboardTemplate.CLASSIC)),
+                cell[0], cell[1], cell[2], cell[3]);
+        int modern = countLightPixels(
+                new ModernScoreboardRenderer().render(snapshot(ScoreboardTemplate.MODERN)),
+                cell[0], cell[1], cell[2], cell[3]);
+
+        assertThat(classic).isGreaterThan(0);
+        assertThat(modern).isGreaterThan(0);
+    }
+
+    @Test
+    void serveColumnHeaderLabelFitsIntoTheColumn() {
+        int frameWidth = 960;
+        int frameHeight = frameWidth * 9 / 16;
+        int[] cell = serveHeaderCell(frameWidth, frameHeight);
+
+        int classic = countLightPixels(
+                new ClassicScoreboardRenderer().render(mediumSnapshot(ScoreboardTemplate.CLASSIC)),
+                cell[0], cell[1], cell[2], cell[3]);
+        int modern = countLightPixels(
+                new ModernScoreboardRenderer().render(mediumSnapshot(ScoreboardTemplate.MODERN)),
+                cell[0], cell[1], cell[2], cell[3]);
+
+        assertThat(classic).isGreaterThan(0);
+        assertThat(modern).isGreaterThan(0);
+    }
+
+    @Test
+    void serveColumnHeaderIsEmptyWithoutLabel() {
+        // 队名列表头留空，浅色像素只应出现在“发球”“胜局”与局号三处
+        int frameWidth = 1920;
+        int frameHeight = 1080;
+        int barHeight = RenderDimensions.barHeight(frameWidth, frameHeight);
+        int headerHeight = Math.max(6, (int) Math.round(barHeight * 0.22));
+        int nameX = SetScoreLayout.margin(frameWidth);
+        int nameEnd = nameX + SetScoreLayout.nameWidth(frameWidth);
+
+        int classic = countLightPixels(
+                new ClassicScoreboardRenderer().render(snapshot(ScoreboardTemplate.CLASSIC)),
+                nameX, 0, nameEnd, headerHeight);
+        int modern = countLightPixels(
+                new ModernScoreboardRenderer().render(snapshot(ScoreboardTemplate.MODERN)),
+                nameX, 0, nameEnd, headerHeight);
+
+        assertThat(classic).isZero();
+        assertThat(modern).isZero();
     }
 
     private int countTransparentPixels(BufferedImage image) {

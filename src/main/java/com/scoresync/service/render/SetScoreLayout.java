@@ -30,7 +30,7 @@ public final class SetScoreLayout {
     /** 1920 宽基准下各部分占视频帧宽度的比例 */
     private static final double MARGIN_RATIO = 8 / 1920.0;
     private static final double NAME_RATIO = 260 / 1920.0;
-    private static final double SERVE_RATIO = 30 / 1920.0;
+    private static final double SERVE_RATIO = 40 / 1920.0;
     private static final double SET_WINS_RATIO = 64 / 1920.0;
     private static final double SET_COLUMN_RATIO = 56 / 1920.0;
     private static final double GAP_RATIO = 6 / 1920.0;
