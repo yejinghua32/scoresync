@@ -3,12 +3,15 @@ package com.scoresync.service;
 import com.scoresync.domain.VideoAsset;
 import com.scoresync.domain.VideoOriginType;
 import com.scoresync.domain.VideoSource;
+import com.scoresync.repository.MatchProjectRepository;
 import com.scoresync.repository.VideoAssetRepository;
 import com.scoresync.repository.VideoSourceRepository;
 import com.scoresync.support.DomainNotFoundException;
 import com.scoresync.support.DomainValidationException;
 import com.scoresync.support.MediaUnavailableException;
+import com.scoresync.support.VideoInUseException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -26,10 +29,13 @@ public class VideoLibraryService {
 
     private final VideoSourceRepository sourceRepo;
     private final VideoAssetRepository assetRepo;
+    private final MatchProjectRepository projectRepo;
 
-    public VideoLibraryService(VideoSourceRepository sourceRepo, VideoAssetRepository assetRepo) {
+    public VideoLibraryService(VideoSourceRepository sourceRepo, VideoAssetRepository assetRepo,
+                               MatchProjectRepository projectRepo) {
         this.sourceRepo = sourceRepo;
         this.assetRepo = assetRepo;
+        this.projectRepo = projectRepo;
     }
 
     /**
@@ -134,6 +140,23 @@ public class VideoLibraryService {
             throw new DomainNotFoundException("VideoSource not found: " + sourceId);
         }
         sourceRepo.delete(sourceId);
+    }
+
+    /**
+     * 从视频库移除视频资产
+     * 只删除登记记录，磁盘上的文件保持不变；重新扫描该目录后仍会再次登记。
+     * 仍被比赛项目引用的视频不允许移除，否则项目将失去视频来源。
+     *
+     * @param assetId 视频资产ID
+     */
+    @Transactional
+    public void removeAsset(long assetId) {
+        VideoAsset asset = assetRepo.findById(assetId);
+        int usedBy = projectRepo.countByVideoAssetId(asset.id());
+        if (usedBy > 0) {
+            throw new VideoInUseException("VIDEO_IN_USE", "该视频正被 " + usedBy + " 个项目使用，无法移除");
+        }
+        assetRepo.delete(assetId);
     }
 
     /**

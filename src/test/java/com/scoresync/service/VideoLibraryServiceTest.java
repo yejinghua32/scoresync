@@ -1,10 +1,15 @@
 package com.scoresync.service;
 
+import com.scoresync.domain.PlayerSide;
+import com.scoresync.domain.ScoreboardTemplate;
 import com.scoresync.domain.VideoAsset;
+import com.scoresync.repository.MatchProjectRepository;
 import com.scoresync.repository.VideoAssetRepository;
 import com.scoresync.repository.VideoSourceRepository;
+import com.scoresync.support.DomainNotFoundException;
 import com.scoresync.support.DomainValidationException;
 import com.scoresync.support.MediaUnavailableException;
+import com.scoresync.support.VideoInUseException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -26,6 +31,7 @@ class VideoLibraryServiceTest {
 
     private VideoSourceRepository sourceRepo;
     private VideoAssetRepository assetRepo;
+    private MatchProjectRepository projectRepo;
     private VideoLibraryService library;
 
     private JdbcTemplate jdbc;
@@ -57,9 +63,19 @@ class VideoLibraryServiceTest {
                   created_at TEXT NOT NULL,
                   updated_at TEXT NOT NULL
                 )""");
+        jdbc.execute("""
+                CREATE TABLE match_project (
+                  id INTEGER PRIMARY KEY, name TEXT NOT NULL,
+                  video_asset_id INTEGER NOT NULL REFERENCES video_asset(id), duration_ms INTEGER NOT NULL CHECK (duration_ms > 0),
+                  player_a TEXT NOT NULL, player_b TEXT NOT NULL, target_wins INTEGER NOT NULL CHECK (target_wins >= 1),
+                  scoreboard_template TEXT NOT NULL DEFAULT 'CLASSIC',
+                  first_server TEXT NOT NULL DEFAULT 'A' CHECK (first_server IN ('A','B')),
+                  created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+                )""");
         sourceRepo = new VideoSourceRepository(jdbc);
         assetRepo = new VideoAssetRepository(jdbc);
-        library = new VideoLibraryService(sourceRepo, assetRepo);
+        projectRepo = new MatchProjectRepository(jdbc);
+        library = new VideoLibraryService(sourceRepo, assetRepo, projectRepo);
     }
 
     @Test
@@ -105,6 +121,46 @@ class VideoLibraryServiceTest {
 
         assertThatThrownBy(() -> library.readAsset(asset.id()))
                 .isInstanceOf(MediaUnavailableException.class);
+    }
+
+    @Test
+    void removeAssetDropsRegistrationButKeepsFileOnDisk(@TempDir Path tempDir) throws IOException {
+        Path sourceDir = tempDir.resolve("source_remove");
+        Files.createDirectory(sourceDir);
+        Path videoFile = sourceDir.resolve("match.mp4");
+        Files.createFile(videoFile);
+
+        long sourceId = library.addSource(sourceDir.toString()).id();
+        VideoAsset asset = library.scan(sourceId).get(0);
+
+        library.removeAsset(asset.id());
+
+        assertThat(assetRepo.findAll()).isEmpty();
+        assertThat(videoFile).exists();
+    }
+
+    @Test
+    void removeAssetRejectsVideoStillUsedByProject(@TempDir Path tempDir) throws IOException {
+        Path sourceDir = tempDir.resolve("source_in_use");
+        Files.createDirectory(sourceDir);
+        Files.createFile(sourceDir.resolve("match.mp4"));
+
+        long sourceId = library.addSource(sourceDir.toString()).id();
+        VideoAsset asset = library.scan(sourceId).get(0);
+        projectRepo.insert("决赛", asset.id(), 60_000L, "甲", "乙", 2,
+                ScoreboardTemplate.CLASSIC, PlayerSide.A);
+
+        assertThatThrownBy(() -> library.removeAsset(asset.id()))
+                .isInstanceOf(VideoInUseException.class)
+                .hasMessageContaining("该视频正被 1 个项目使用，无法移除");
+
+        assertThat(assetRepo.findAll()).hasSize(1);
+    }
+
+    @Test
+    void removeAssetRejectsUnknownAsset() {
+        assertThatThrownBy(() -> library.removeAsset(9_999L))
+                .isInstanceOf(DomainNotFoundException.class);
     }
 
     @Test

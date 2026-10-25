@@ -92,7 +92,7 @@ class ProjectApiIntegrationTest {
         com.scoresync.service.ScoreReplayService replayService = new com.scoresync.service.ScoreReplayService();
         com.scoresync.service.ProjectService projectService = new com.scoresync.service.ProjectService(projects, assets, events, renderJobs, replayService);
         com.scoresync.service.ScoreEventService scoreEventService = new com.scoresync.service.ScoreEventService(projects, assets, events, replayService, projectService);
-        com.scoresync.service.VideoLibraryService videoLibraryService = new com.scoresync.service.VideoLibraryService(sources, assets);
+        com.scoresync.service.VideoLibraryService videoLibraryService = new com.scoresync.service.VideoLibraryService(sources, assets, projects);
         com.scoresync.service.MediaStreamingService mediaStreamingService = new com.scoresync.service.MediaStreamingService(assets);
         com.scoresync.service.NativeFilePickerService filePickerService = new com.scoresync.service.AwtNativeFilePickerService();
 
@@ -136,6 +136,38 @@ class ProjectApiIntegrationTest {
                         .content("{\"videoTimeMs\":60001,\"playerSide\":\"A\"}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("DOMAIN_VALIDATION"));
+    }
+
+    @Test
+    void removeVideo_shouldDropRegistrationAndKeepFile() throws Exception {
+        VideoSource source = sources.insert("/videos");
+        long videoId = assets.insert(source.id(), "/videos/test.mp4", "测试视频", 1024L, System.currentTimeMillis(), VideoOriginType.SCANNED);
+
+        mockMvc.perform(delete("/api/videos/" + videoId))
+                .andExpect(status().isNoContent());
+
+        assertThat(assets.findAll()).isEmpty();
+    }
+
+    @Test
+    void removeVideo_usedByProject_shouldReturnConflict() throws Exception {
+        VideoSource source = sources.insert("/videos");
+        long videoId = assets.insert(source.id(), "/videos/test.mp4", "测试视频", 1024L, System.currentTimeMillis(), VideoOriginType.SCANNED);
+        projects.insert("决赛", videoId, 60000L, "甲", "乙", 2, ScoreboardTemplate.CLASSIC, com.scoresync.domain.PlayerSide.A);
+
+        mockMvc.perform(delete("/api/videos/" + videoId))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("VIDEO_IN_USE"))
+                .andExpect(jsonPath("$.message").value("该视频正被 1 个项目使用，无法移除"));
+
+        assertThat(assets.findAll()).hasSize(1);
+    }
+
+    @Test
+    void removeVideo_unknownVideo_shouldReturn404() throws Exception {
+        mockMvc.perform(delete("/api/videos/99999"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("NOT_FOUND"));
     }
 
     @Test
@@ -338,7 +370,7 @@ class ProjectApiIntegrationTest {
         com.scoresync.service.ScoreReplayService replayService = new com.scoresync.service.ScoreReplayService();
         com.scoresync.service.ProjectService projectService = new com.scoresync.service.ProjectService(projects, assets, events, new RenderJobRepository(jdbc), replayService);
         com.scoresync.service.ScoreEventService scoreEventService = new com.scoresync.service.ScoreEventService(projects, assets, events, replayService, projectService);
-        com.scoresync.service.VideoLibraryService videoLibraryService = new com.scoresync.service.VideoLibraryService(sources, assets);
+        com.scoresync.service.VideoLibraryService videoLibraryService = new com.scoresync.service.VideoLibraryService(sources, assets, projects);
         com.scoresync.service.MediaStreamingService mediaStreamingService = new com.scoresync.service.MediaStreamingService(assets);
         com.scoresync.service.NativeFilePickerService filePickerService = new com.scoresync.service.AwtNativeFilePickerService();
         backupService = new BackupService(projects, assets, events, replayService, projectService);

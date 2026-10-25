@@ -9,6 +9,7 @@ import com.scoresync.support.DomainNotFoundException;
 import com.scoresync.support.DomainValidationException;
 import com.scoresync.support.MediaUnavailableException;
 import com.scoresync.support.RenderJobConflictException;
+import com.scoresync.support.VideoInUseException;
 import com.scoresync.web.dto.ApiError;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -56,6 +57,15 @@ public class ApiExceptionHandler {
      */
     @ExceptionHandler(RenderJobConflictException.class)
     public ResponseEntity<ApiError> handleRenderJobConflict(RenderJobConflictException ex) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(new ApiError(ex.getCode(), ex.getMessage(), Collections.emptyMap()));
+    }
+
+    /**
+     * 处理视频仍在使用中的异常（409）
+     */
+    @ExceptionHandler(VideoInUseException.class)
+    public ResponseEntity<ApiError> handleVideoInUse(VideoInUseException ex) {
         return ResponseEntity.status(HttpStatus.CONFLICT)
                 .body(new ApiError(ex.getCode(), ex.getMessage(), Collections.emptyMap()));
     }

@@ -73,6 +73,16 @@ public class VideoSourceController {
     }
 
     /**
+     * 从视频库移除指定的视频资产
+     * 只删除登记记录，不会删除磁盘上的文件
+     */
+    @DeleteMapping("/videos/{id}")
+    public ResponseEntity<Void> removeVideo(@PathVariable long id) {
+        videoLibraryService.removeAsset(id);
+        return ResponseEntity.noContent().build();
+    }
+
+    /**
      * 打开系统文件选择器，选择本地视频文件并登记
      */
     @PostMapping("/videos/pick-local")

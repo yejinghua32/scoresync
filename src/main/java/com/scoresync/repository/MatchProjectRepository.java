@@ -83,6 +83,18 @@ public class MatchProjectRepository {
                 ROW_MAPPER, limit, offset);
     }
 
+    /**
+     * 统计引用指定视频资产的比赛项目数量
+     *
+     * @param videoAssetId 视频资产ID
+     * @return 项目数量
+     */
+    public int countByVideoAssetId(long videoAssetId) {
+        Integer count = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM match_project WHERE video_asset_id = ?", Integer.class, videoAssetId);
+        return count == null ? 0 : count;
+    }
+
     public int count() {
         Integer count = jdbc.queryForObject("SELECT COUNT(*) FROM match_project", Integer.class);
         return count == null ? 0 : count;

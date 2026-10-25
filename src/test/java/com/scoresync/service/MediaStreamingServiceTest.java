@@ -1,6 +1,7 @@
 package com.scoresync.service;
 
 import com.scoresync.domain.VideoAsset;
+import com.scoresync.repository.MatchProjectRepository;
 import com.scoresync.repository.VideoAssetRepository;
 import com.scoresync.repository.VideoSourceRepository;
 import com.scoresync.support.DomainValidationException;
@@ -55,9 +56,18 @@ class MediaStreamingServiceTest {
                   created_at TEXT NOT NULL,
                   updated_at TEXT NOT NULL
                 )""");
+        jdbc.execute("""
+                CREATE TABLE match_project (
+                  id INTEGER PRIMARY KEY, name TEXT NOT NULL,
+                  video_asset_id INTEGER NOT NULL REFERENCES video_asset(id), duration_ms INTEGER NOT NULL CHECK (duration_ms > 0),
+                  player_a TEXT NOT NULL, player_b TEXT NOT NULL, target_wins INTEGER NOT NULL CHECK (target_wins >= 1),
+                  scoreboard_template TEXT NOT NULL DEFAULT 'CLASSIC',
+                  first_server TEXT NOT NULL DEFAULT 'A' CHECK (first_server IN ('A','B')),
+                  created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+                )""");
         sourceRepo = new VideoSourceRepository(jdbc);
         assetRepo = new VideoAssetRepository(jdbc);
-        library = new VideoLibraryService(sourceRepo, assetRepo);
+        library = new VideoLibraryService(sourceRepo, assetRepo, new MatchProjectRepository(jdbc));
         streaming = new MediaStreamingService(assetRepo);
     }
 

@@ -298,6 +298,25 @@ async function deleteProject(event, id) {
     }
 }
 
+/**
+ * 从视频库移除视频
+ * 仅移除登记信息，不会删除磁盘上的文件；重新扫描该目录后仍会再次登记
+ */
+async function deleteVideo(event, id) {
+    if (event) event.stopPropagation();
+    const asset = assets.find(a => a.id === id);
+    const name = asset ? asset.displayName : `#${id}`;
+    if (!confirm(`确定从视频库移除「${name}」吗？\n\n仅移除登记信息，不会删除磁盘上的文件；重新扫描该目录后仍会再次登记。`)) return;
+    try {
+        await api(`/api/videos/${id}`, {method: 'DELETE'});
+        assets = await api('/api/videos') || [];
+        renderVideos();
+        showToast('已从视频库移除', 'success');
+    } catch (e) {
+        showToast(e.message, 'error');
+    }
+}
+
 async function exportProjectBackup(event, id) {
     if (event) event.stopPropagation();
     try {
@@ -447,7 +466,7 @@ function renderVideos() {
       <td class="size">${sizeStr}</td>
       <td class="source">${sourceName}</td>
       <td class="time">${modTime}</td>
-      <td class="actions">${actionBtn}</td>
+      <td class="actions">${actionBtn}<button class="danger delete-btn" onclick="deleteVideo(event, ${a.id})">删除</button></td>
     </tr>`;
     }).join('');
 }
@@ -701,6 +720,7 @@ window.deleteSource = deleteSource;
 window.openCreateModal = openCreateModal;
 window.openProject = openProject;
 window.deleteProject = deleteProject;
+window.deleteVideo = deleteVideo;
 window.exportProjectBackup = exportProjectBackup;
 window.editTemplate = editTemplate;
 window.deleteTemplate = deleteTemplate;
