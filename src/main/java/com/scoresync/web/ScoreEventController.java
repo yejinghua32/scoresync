@@ -8,6 +8,7 @@ package com.scoresync.web;
 import com.scoresync.domain.EditorState;
 import com.scoresync.service.ScoreEventService;
 import com.scoresync.web.dto.CreateScoreEventRequest;
+import com.scoresync.web.dto.ShiftScoreEventsRequest;
 import com.scoresync.web.dto.UpdateScoreEventRequest;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
@@ -41,6 +42,17 @@ public class ScoreEventController {
     public ResponseEntity<EditorState> updateEvent(@PathVariable long id,
                                                    @Valid @RequestBody UpdateScoreEventRequest request) {
         EditorState state = scoreEventService.update(id, request.videoTimeMs(), request.playerSide());
+        return ResponseEntity.ok().body(state);
+    }
+
+    /**
+     * 批量平移当前项目所有得分事件的时间
+     * 只允许 ±100 毫秒，越界时整次拒绝并保持原样
+     */
+    @PatchMapping("/projects/{id}/events/time-shift")
+    public ResponseEntity<EditorState> shiftEventTimes(@PathVariable long id,
+                                                       @RequestBody ShiftScoreEventsRequest request) {
+        EditorState state = scoreEventService.shiftTimes(id, request.deltaMs());
         return ResponseEntity.ok().body(state);
     }
 

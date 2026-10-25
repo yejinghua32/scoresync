@@ -30,24 +30,68 @@ class RenderPlanServiceTest {
                 VideoOriginType.PICKED, Instant.now(), Instant.now());
     }
 
+    private VideoProbeResult probe() {
+        return new VideoProbeResult(1920, 1080, 5_000, "30000/1001", true);
+    }
+
     @Test
-    void createsInitialAndPointSegmentsEndingAtVideoDuration() {
+    void startsSegmentsAtFirstScoreTime() {
         RenderPlan plan = service.create(project(), video(), List.of(
                 new ScoreboardCue(0, 0, 1, 0, 0, 0, 0, false),
                 new ScoreboardCue(1_000, 1, 1, 1, 0, 0, 0, false)
-        ), new VideoProbeResult(1920, 1080, 5_000, "30000/1001", true), tempDir);
+        ), probe(), tempDir);
 
         assertThat(plan.segments()).extracting(RenderPlan.Segment::startTimeMs,
-                RenderPlan.Segment::endTimeMs).containsExactly(
-                tuple(0L, 1_000L), tuple(1_000L, 5_000L));
+                RenderPlan.Segment::endTimeMs).containsExactly(tuple(1_000L, 5_000L));
+    }
+
+    @Test
+    void startsSegmentsAtVideoStartWhenFirstScoreIsAtZero() {
+        RenderPlan plan = service.create(project(), video(), List.of(
+                new ScoreboardCue(0, 0, 1, 0, 0, 0, 0, false),
+                new ScoreboardCue(0, 1, 1, 1, 0, 0, 0, false)
+        ), probe(), tempDir);
+
+        assertThat(plan.segments()).extracting(RenderPlan.Segment::startTimeMs,
+                RenderPlan.Segment::endTimeMs).containsExactly(tuple(0L, 5_000L));
+    }
+
+    @Test
+    void createsNoSegmentsWithoutAnyScoreEvent() {
+        RenderPlan plan = service.create(project(), video(), List.of(
+                new ScoreboardCue(0, 0, 1, 0, 0, 0, 0, false)
+        ), probe(), tempDir);
+
+        assertThat(plan.segments()).isEmpty();
+    }
+
+    @Test
+    void createsNoSegmentsWhenFirstScoreReachesVideoEnd() {
+        RenderPlan plan = service.create(project(), video(), List.of(
+                new ScoreboardCue(0, 0, 1, 0, 0, 0, 0, false),
+                new ScoreboardCue(5_000, 1, 1, 1, 0, 0, 0, false)
+        ), probe(), tempDir);
+
+        assertThat(plan.segments()).isEmpty();
+    }
+
+    @Test
+    void createsNoSegmentsWhenFirstScoreIsBeyondProbeDuration() {
+        RenderPlan plan = service.create(project(), video(), List.of(
+                new ScoreboardCue(0, 0, 1, 0, 0, 0, 0, false),
+                new ScoreboardCue(9_000, 1, 1, 1, 0, 0, 0, false)
+        ), probe(), tempDir);
+
+        assertThat(plan.segments()).isEmpty();
     }
 
     @Test
     void writesSegmentPngsIntoWorkDir() {
         RenderPlan plan = service.create(project(), video(), List.of(
                 new ScoreboardCue(0, 0, 1, 0, 0, 0, 0, false),
-                new ScoreboardCue(1_000, 1, 1, 1, 0, 0, 0, false)
-        ), new VideoProbeResult(1920, 1080, 5_000, "30000/1001", true), tempDir);
+                new ScoreboardCue(1_000, 1, 1, 1, 0, 0, 0, false),
+                new ScoreboardCue(2_000, 2, 1, 1, 1, 0, 0, false)
+        ), probe(), tempDir);
 
         assertThat(plan.segments()).allSatisfy(segment ->
                 assertThat(segment.pngPath()).isNotNull().exists());
@@ -56,13 +100,12 @@ class RenderPlanServiceTest {
     }
 
     @Test
-    void handlesSingleCueAsOneSegment() {
-        RenderPlan plan = service.create(project(), video(), List.of(
+    void writesNoPngWhenThereIsNoScoreEvent() {
+        service.create(project(), video(), List.of(
                 new ScoreboardCue(0, 0, 1, 0, 0, 0, 0, false)
-        ), new VideoProbeResult(1920, 1080, 5_000, "30000/1001", true), tempDir);
+        ), probe(), tempDir);
 
-        assertThat(plan.segments()).extracting(RenderPlan.Segment::startTimeMs,
-                RenderPlan.Segment::endTimeMs).containsExactly(tuple(0L, 5_000L));
+        assertThat(tempDir.resolve("segment-0000.png")).doesNotExist();
     }
 
     @Test
@@ -72,21 +115,21 @@ class RenderPlanServiceTest {
 
         RenderPlan plan = service.create(modernProject, video(), List.of(
                 new ScoreboardCue(0, 0, 1, 0, 0, 0, 0, false)
-        ), new VideoProbeResult(1920, 1080, 5_000, "30000/1001", true), tempDir);
+        ), probe(), tempDir);
 
         assertThat(plan.template()).isEqualTo(ScoreboardTemplate.MODERN);
     }
 
     @Test
-    void multipleCuesProduceMultipleSegments() {
+    void multipleCuesProduceMultipleSegmentsAfterFirstScore() {
         RenderPlan plan = service.create(project(), video(), List.of(
                 new ScoreboardCue(0, 0, 1, 0, 0, 0, 0, false),
                 new ScoreboardCue(1_000, 1, 1, 1, 0, 0, 0, false),
                 new ScoreboardCue(2_000, 2, 1, 1, 1, 0, 0, false)
-        ), new VideoProbeResult(1920, 1080, 5_000, "30000/1001", true), tempDir);
+        ), probe(), tempDir);
 
         assertThat(plan.segments()).extracting(RenderPlan.Segment::startTimeMs,
                 RenderPlan.Segment::endTimeMs).containsExactly(
-                tuple(0L, 1_000L), tuple(1_000L, 2_000L), tuple(2_000L, 5_000L));
+                tuple(1_000L, 2_000L), tuple(2_000L, 5_000L));
     }
 }

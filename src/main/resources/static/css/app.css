@@ -569,6 +569,32 @@ button.danger:hover {
     color: var(--text);
 }
 
+.time-shift-controls {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
+}
+
+.time-shift-controls .field-label {
+    font-size: 0.875rem;
+    color: var(--text-dim);
+}
+
+.time-shift-controls .shift-btn {
+    padding: 0.35rem 0.75rem;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+}
+
+.time-shift-controls .shift-btn:hover:not(:disabled) {
+    border-color: var(--text-dim);
+    color: var(--text);
+}
+
 .hotkey-hints {
     display: flex;
     gap: 1rem;

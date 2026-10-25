@@ -32,6 +32,9 @@ public class ScoreEventService {
     private final ProjectService projectService;
     private final Map<Long, ReentrantLock> locks = new ConcurrentHashMap<>();
 
+    /** 批量平移得分时间时允许的固定步长（毫秒） */
+    private static final long SHIFT_STEP_MS = 100L;
+
     public ScoreEventService(MatchProjectRepository projectRepository,
                              VideoAssetRepository videoAssetRepository,
                              ScoreEventRepository eventRepository,
@@ -172,6 +175,55 @@ public class ScoreEventService {
             return buildEditorState(projectId);
         } finally {
             lock.unlock();
+        }
+    }
+
+    /**
+     * 批量平移项目内所有得分事件的时间
+     * 先对全部事件做边界校验，校验通过后才执行一次项目范围内的更新，
+     * 因此失败时不会有任何事件被部分修改
+     *
+     * @param projectId 项目ID
+     * @param deltaMs   时间偏移（毫秒），只允许 +100 或 -100
+     */
+    @Transactional
+    public EditorState shiftTimes(long projectId, long deltaMs) {
+        if (deltaMs != SHIFT_STEP_MS && deltaMs != -SHIFT_STEP_MS) {
+            throw new DomainValidationException("平移步长只支持 +100ms 或 -100ms");
+        }
+
+        ReentrantLock lock = lockFor(projectId);
+        lock.lock();
+        try {
+            MatchProject project = projectRepository.findById(projectId);
+            List<ScoreEvent> existingEvents = eventRepository.findByMatchId(projectId);
+            if (existingEvents.isEmpty()) {
+                return buildEditorState(projectId);
+            }
+
+            long durationMs = project.durationMs();
+            for (ScoreEvent event : existingEvents) {
+                long shifted = shiftTime(event.videoTimeMs(), deltaMs);
+                if (shifted < 0 || shifted > durationMs) {
+                    throw new DomainValidationException("平移后得分时间超出视频时长范围，本次平移已取消");
+                }
+            }
+
+            // 所有事件使用同一偏移量，排序与 sequence_no 都不受影响，
+            // 因此无需重新回放校验比分状态
+            eventRepository.shiftTimes(projectId, deltaMs);
+
+            return buildEditorState(projectId);
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    private long shiftTime(long videoTimeMs, long deltaMs) {
+        try {
+            return Math.addExact(videoTimeMs, deltaMs);
+        } catch (ArithmeticException e) {
+            throw new DomainValidationException("平移后得分时间超出视频时长范围，本次平移已取消");
         }
     }
 

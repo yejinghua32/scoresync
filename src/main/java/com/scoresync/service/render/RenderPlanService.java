@@ -55,10 +55,16 @@ public class RenderPlanService {
             throw new IllegalStateException("不支持的模板: " + project.scoreboardTemplate());
         }
 
+        // 比分牌只从首个真实得分时刻开始显示；没有得分事件时全程不叠加比分牌
+        Long firstScoreTimeMs = firstScoreTimeMs(cues);
+        if (firstScoreTimeMs == null || firstScoreTimeMs >= probe.durationMs()) {
+            return new RenderPlan(project, video, project.scoreboardTemplate(), List.of(), probe, workDir);
+        }
+
         List<RenderPlan.Segment> segments = new ArrayList<>();
-        long cursor = 0;
+        long cursor = firstScoreTimeMs;
         int index = 0;
-        for (long boundary : boundaries(cues, probe.durationMs())) {
+        for (long boundary : boundaries(cues, probe.durationMs(), cursor)) {
             if (boundary == cursor) {
                 continue;
             }
@@ -82,18 +88,44 @@ public class RenderPlanService {
 
     /**
      * 计算计分板变化的边界时间点
+     * 只保留晚于起始时刻的边界，避免首分之前的空白区间产生分段
+     *
+     * @param cues      计分板cue列表
+     * @param durationMs 视频时长（毫秒）
+     * @param fromMs    分段起始时刻（毫秒）
      */
-    private List<Long> boundaries(List<ScoreboardCue> cues, long durationMs) {
+    private List<Long> boundaries(List<ScoreboardCue> cues, long durationMs, long fromMs) {
         List<Long> result = new ArrayList<>();
         for (ScoreboardCue cue : cues) {
             long t = Math.max(0, cue.startTimeMs());
-            if (t > 0 && t < durationMs && !result.contains(t)) {
+            if (t > fromMs && t < durationMs && !result.contains(t)) {
                 result.add(t);
             }
         }
         result.sort(Long::compareTo);
         result.add(durationMs);
         return result;
+    }
+
+    /**
+     * 首个真实得分时刻
+     * 只统计 sequenceNo 大于 0 的 cue，0 序号的初始 0:0 cue 不代表已经得分
+     *
+     * @param cues 计分板cue列表
+     * @return 首个得分时刻（毫秒），没有得分事件时返回 null
+     */
+    private Long firstScoreTimeMs(List<ScoreboardCue> cues) {
+        Long first = null;
+        for (ScoreboardCue cue : cues) {
+            if (cue.sequenceNo() <= 0) {
+                continue;
+            }
+            long t = Math.max(0, cue.startTimeMs());
+            if (first == null || t < first) {
+                first = t;
+            }
+        }
+        return first;
     }
 
     /**

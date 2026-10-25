@@ -103,6 +103,20 @@ public class ScoreEventRepository {
         return findById(id);
     }
 
+    /**
+     * 批量平移指定项目的所有得分事件时间
+     * 所有事件使用同一偏移量，因此事件之间的相对顺序保持不变，sequence_no 不受影响
+     *
+     * @param matchId 比赛ID
+     * @param deltaMs 时间偏移（毫秒）
+     * @return 受影响的行数
+     */
+    public int shiftTimes(long matchId, long deltaMs) {
+        return jdbc.update("""
+                        UPDATE score_event SET video_time_ms = video_time_ms + ?, updated_at = ? WHERE match_id = ?""",
+                deltaMs, Instant.now().toString(), matchId);
+    }
+
     public void delete(long id) {
         int rows = jdbc.update("DELETE FROM score_event WHERE id = ?", id);
         if (rows == 0) {

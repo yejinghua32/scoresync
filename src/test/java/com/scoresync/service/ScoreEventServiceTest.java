@@ -1,11 +1,14 @@
 package com.scoresync.service;
 
+import com.scoresync.domain.DerivedScoreEvent;
 import com.scoresync.domain.EditorState;
 import com.scoresync.domain.PlayerSide;
+import com.scoresync.domain.ScoreEvent;
 import com.scoresync.domain.VideoOriginType;
 import com.scoresync.repository.MatchProjectRepository;
 import com.scoresync.repository.ScoreEventRepository;
 import com.scoresync.repository.VideoAssetRepository;
+import com.scoresync.support.DomainNotFoundException;
 import com.scoresync.support.DomainValidationException;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -18,6 +21,7 @@ import java.nio.file.Path;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.tuple;
 
 class ScoreEventServiceTest {
 
@@ -88,7 +92,11 @@ class ScoreEventServiceTest {
     }
 
     private long createProject(int targetWins) {
-        long assetId = videoAssetRepository.insert(null, "/videos/test.mp4", "测试视频",
+        return createProject(targetWins, "/videos/test.mp4");
+    }
+
+    private long createProject(int targetWins, String videoPath) {
+        long assetId = videoAssetRepository.insert(null, videoPath, "测试视频",
                 1024L, System.currentTimeMillis(), VideoOriginType.PICKED);
         EditorState state = projectService.create("测试比赛", assetId, 120_000L, "选手A", "选手B", targetWins);
         return state.project().id();
@@ -242,6 +250,139 @@ class ScoreEventServiceTest {
         assertThatThrownBy(() -> events.undoLast(projectId))
                 .isInstanceOf(DomainValidationException.class)
                 .hasMessageContaining("没有可撤销的得分事件");
+    }
+
+    @Test
+    void shiftTimesMovesAllEventsForward() {
+        long projectId = createProject(3);
+        events.add(projectId, 1_000, PlayerSide.A);
+        events.add(projectId, 2_000, PlayerSide.B);
+
+        EditorState state = events.shiftTimes(projectId, 100);
+
+        assertThat(state.events()).extracting(DerivedScoreEvent::videoTimeMs)
+                .containsExactly(1_100L, 2_100L);
+    }
+
+    @Test
+    void shiftTimesMovesAllEventsBackward() {
+        long projectId = createProject(3);
+        events.add(projectId, 1_000, PlayerSide.A);
+        events.add(projectId, 2_000, PlayerSide.B);
+
+        EditorState state = events.shiftTimes(projectId, -100);
+
+        assertThat(state.events()).extracting(DerivedScoreEvent::videoTimeMs)
+                .containsExactly(900L, 1_900L);
+    }
+
+    @Test
+    void shiftTimesAccumulatesAcrossCalls() {
+        long projectId = createProject(3);
+        events.add(projectId, 1_000, PlayerSide.A);
+
+        events.shiftTimes(projectId, 100);
+        EditorState state = events.shiftTimes(projectId, 100);
+
+        assertThat(state.events()).extracting(DerivedScoreEvent::videoTimeMs).containsExactly(1_200L);
+    }
+
+    @Test
+    void shiftTimesKeepsEventIdentityOrderAndDerivedScore() {
+        long projectId = createProject(3);
+        long firstId = events.add(projectId, 1_000, PlayerSide.A).events().get(0).eventId();
+        events.add(projectId, 2_000, PlayerSide.B);
+
+        EditorState state = events.shiftTimes(projectId, 100);
+
+        assertThat(state.events()).extracting(DerivedScoreEvent::eventId,
+                DerivedScoreEvent::videoTimeMs, DerivedScoreEvent::sequenceNo,
+                DerivedScoreEvent::playerSide, DerivedScoreEvent::scoreA, DerivedScoreEvent::scoreB)
+                .containsExactly(
+                        tuple(firstId, 1_100L, 1L, PlayerSide.A, 1, 0),
+                        tuple(state.events().get(1).eventId(), 2_100L, 2L, PlayerSide.B, 1, 1));
+    }
+
+    @Test
+    void shiftTimesOnlyAffectsTheGivenProject() {
+        long projectId = createProject(3, "/videos/first.mp4");
+        long otherProjectId = createProject(3, "/videos/second.mp4");
+        events.add(projectId, 1_000, PlayerSide.A);
+        events.add(otherProjectId, 5_000, PlayerSide.B);
+
+        events.shiftTimes(projectId, 100);
+
+        assertThat(eventRepository.findByMatchId(projectId)).singleElement()
+                .extracting(ScoreEvent::videoTimeMs).isEqualTo(1_100L);
+        assertThat(eventRepository.findByMatchId(otherProjectId)).singleElement()
+                .extracting(ScoreEvent::videoTimeMs).isEqualTo(5_000L);
+    }
+
+    @Test
+    void shiftTimesRejectsNegativeResultWithoutPersistingAnything() {
+        long projectId = createProject(3);
+        events.add(projectId, 50, PlayerSide.A);
+        events.add(projectId, 1_000, PlayerSide.B);
+
+        assertThatThrownBy(() -> events.shiftTimes(projectId, -100))
+                .isInstanceOf(DomainValidationException.class)
+                .hasMessageContaining("平移后得分时间超出视频时长范围");
+
+        assertThat(eventRepository.findByMatchId(projectId))
+                .extracting(ScoreEvent::videoTimeMs).containsExactly(50L, 1_000L);
+    }
+
+    @Test
+    void shiftTimesRejectsResultBeyondVideoDurationWithoutPersistingAnything() {
+        long projectId = createProject(3);
+        events.add(projectId, 1_000, PlayerSide.A);
+        events.add(projectId, 119_950, PlayerSide.B);
+
+        assertThatThrownBy(() -> events.shiftTimes(projectId, 100))
+                .isInstanceOf(DomainValidationException.class)
+                .hasMessageContaining("平移后得分时间超出视频时长范围");
+
+        assertThat(eventRepository.findByMatchId(projectId))
+                .extracting(ScoreEvent::videoTimeMs).containsExactly(1_000L, 119_950L);
+    }
+
+    @Test
+    void shiftTimesAcceptsResultExactlyOnVideoDurationBoundary() {
+        long projectId = createProject(3);
+        events.add(projectId, 119_900, PlayerSide.A);
+
+        EditorState state = events.shiftTimes(projectId, 100);
+
+        assertThat(state.events()).extracting(DerivedScoreEvent::videoTimeMs).containsExactly(120_000L);
+    }
+
+    @Test
+    void shiftTimesRejectsUnsupportedStep() {
+        long projectId = createProject(3);
+        events.add(projectId, 1_000, PlayerSide.A);
+
+        assertThatThrownBy(() -> events.shiftTimes(projectId, 50))
+                .isInstanceOf(DomainValidationException.class)
+                .hasMessageContaining("平移步长只支持 +100ms 或 -100ms");
+
+        assertThat(eventRepository.findByMatchId(projectId))
+                .extracting(ScoreEvent::videoTimeMs).containsExactly(1_000L);
+    }
+
+    @Test
+    void shiftTimesOnProjectWithoutEventsKeepsDatabaseUntouched() {
+        long projectId = createProject(3);
+
+        EditorState state = events.shiftTimes(projectId, 100);
+
+        assertThat(state.events()).isEmpty();
+        assertThat(eventRepository.findByMatchId(projectId)).isEmpty();
+    }
+
+    @Test
+    void shiftTimesRejectsUnknownProject() {
+        assertThatThrownBy(() -> events.shiftTimes(9_999L, 100))
+                .isInstanceOf(DomainNotFoundException.class);
     }
 
     @Test

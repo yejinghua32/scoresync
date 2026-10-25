@@ -104,11 +104,18 @@ public class FfmpegCommandFactory {
     /**
      * 生成FFmpeg滤镜脚本
      * 使用overlay滤镜在指定时间段切换不同的计分板图片
+     * 没有任何分段时不叠加比分牌，但仍要输出 [scoreboard] 标签保持输出映射不变
      */
     private void writeFilterScript(Path filterScript, List<RenderPlan.Segment> segments,
                                    int overlayX, int overlayY) {
         StringBuilder sb = new StringBuilder();
         int count = segments.size();
+        if (count == 0) {
+            sb.append("[0:v]null[scoreboard]");
+            sb.append("\n");
+            writeFilterScriptFile(filterScript, sb.toString());
+            return;
+        }
         for (int i = 0; i < count; i++) {
             if (i > 0) {
                 sb.append(";\n");
@@ -136,9 +143,13 @@ public class FfmpegCommandFactory {
         }
         sb.append("\n");
 
+        writeFilterScriptFile(filterScript, sb.toString());
+    }
+
+    private void writeFilterScriptFile(Path filterScript, String content) {
         try {
             Files.createDirectories(filterScript.getParent());
-            Files.writeString(filterScript, sb.toString());
+            Files.writeString(filterScript, content);
         } catch (IOException e) {
             throw new IllegalStateException("无法写入滤镜脚本: " + filterScript, e);
         }

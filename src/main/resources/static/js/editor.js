@@ -16,6 +16,8 @@ const startRenderBtn = document.getElementById('start-render');
 const cancelRenderBtn = document.getElementById('cancel-render');
 const downloadLink = document.getElementById('download-render');
 const renderStatusEl = document.getElementById('render-status');
+const shiftLaterBtn = document.getElementById('shift-later');
+const shiftEarlierBtn = document.getElementById('shift-earlier');
 
 let currentState = null;
 let pendingEventId = null;
@@ -23,6 +25,7 @@ let writeQueue = Promise.resolve();
 let activeJobId = null;
 let pollTimer = null;
 let lastPreviewKey = null;
+let previewRequestToken = 0;
 
 function setSaveStatus(text, type = 'success') {
     saveStatusEl.textContent = text;
@@ -85,9 +88,16 @@ function renderState(state) {
     document.getElementById('set-wins').textContent = `A胜: ${state.match.setWinsA} 局  |  B胜: ${state.match.setWinsB} 局`;
     document.getElementById('completed-sets').textContent = `已完成局数: ${(state.match.completedSets || []).length}`;
 
+    updateShiftButtons(state);
     renderEventList(state.events);
     refreshScoreboardPreview();
     scrollToActiveEvent();
+}
+
+function updateShiftButtons(state) {
+    const enabled = !!state && Array.isArray(state.events) && state.events.length > 0;
+    shiftLaterBtn.disabled = !enabled;
+    shiftEarlierBtn.disabled = !enabled;
 }
 
 function activeCueAt(timeMs) {
@@ -95,6 +105,17 @@ function activeCueAt(timeMs) {
     return currentState.scoreboardCues
         .filter(cue => cue.startTimeMs <= timeMs)
         .at(-1);
+}
+
+/**
+ * 首个真实得分时刻
+ * 事件列表已按时间排序，首项即为首分；没有得分事件时返回 null
+ */
+function firstScoreTimeMs() {
+    if (!currentState || !Array.isArray(currentState.events) || currentState.events.length === 0) {
+        return null;
+    }
+    return currentState.events[0].videoTimeMs;
 }
 
 function refreshScoreboardPreview() {
@@ -105,16 +126,29 @@ function refreshScoreboardPreview() {
     const firstServer = document.querySelector('input[name="first-server"]:checked')?.value || 'A';
     const timeMs = videoTimeMs;
     const sequenceNo = cue ? cue.sequenceNo : 0;
-    const previewKey = `${template}|${firstServer}|${timeMs}|${sequenceNo}`;
+    // 与导出保持一致：比分牌只从首个真实得分时刻起显示，之前（含无得分事件）不叠加
+    const firstScoreMs = firstScoreTimeMs();
+    const visible = firstScoreMs !== null && videoTimeMs >= firstScoreMs;
+    const previewKey = `${template}|${firstServer}|${timeMs}|${sequenceNo}|${visible}`;
     if (previewKey === lastPreviewKey) return;
     lastPreviewKey = previewKey;
 
+    if (!visible) {
+        // 作废在途请求，避免较早发出的图片在加载完成后把比分牌重新显示出来
+        previewRequestToken += 1;
+        previewImg.onload = null;
+        previewImg.classList.remove('loaded');
+        return;
+    }
+
     const renderWidth = 960;
     const url = `/api/projects/${projectId}/scoreboard-preview?template=${template}&timeMs=${timeMs}&renderWidth=${renderWidth}`;
+    const token = ++previewRequestToken;
     previewImg.classList.remove('loaded');
     // 比分牌 PNG 宽度随可见局数变化，按固有宽度换算为视频帧的相对宽度，
     // 保证浏览器叠加预览与导出视频中的比分牌占屏比例一致。
     previewImg.onload = () => {
+        if (token !== previewRequestToken) return;
         const naturalWidth = previewImg.naturalWidth;
         if (Number.isInteger(naturalWidth) && naturalWidth > 0 && renderWidth > 0) {
             previewImg.style.width = `${naturalWidth / renderWidth * 100}%`;
@@ -232,6 +266,23 @@ document.getElementById('confirm-delete').addEventListener('click', async () => 
         loadState();
     }
 });
+
+document.getElementById('shift-later').addEventListener('click', () => enqueueWrite(() => shiftEventTimes(100)));
+document.getElementById('shift-earlier').addEventListener('click', () => enqueueWrite(() => shiftEventTimes(-100)));
+
+/**
+ * 整体平移本项目所有得分时间
+ * 服务端整次校验，越界时保持原样并返回中文错误
+ */
+async function shiftEventTimes(deltaMs) {
+    if (!currentState || !Array.isArray(currentState.events) || currentState.events.length === 0) return;
+    const state = await api(`/api/projects/${projectId}/events/time-shift`, {
+        method: 'PATCH',
+        body: JSON.stringify({deltaMs})
+    });
+    renderState(state);
+    setSaveStatus('已自动保存');
+}
 
 document.getElementById('score-a').addEventListener('click', () => addPoint('A'));
 document.getElementById('score-b').addEventListener('click', () => addPoint('B'));
