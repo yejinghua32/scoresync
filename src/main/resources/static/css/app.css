@@ -432,19 +432,42 @@ button.danger:hover {
     gap: 1rem;
 }
 
+/**
+ * 视频舞台
+ * 尺寸完全跟随视频的原始比例：宽度取「所在列宽 / 视频原生宽度 / 视口高度允许的宽度」三者的最小值，
+ * 高度由 aspect-ratio 推导。这样画面不会被拉伸或留黑边，
+ * 比分牌叠加图按舞台百分比定位即可与画面精确对齐；
+ * 宽度不超过原生像素宽度，避免在大显示器上放大导致的模糊。
+ */
 .video-stage {
     position: relative;
-    width: 100%;
+    width: min(100%, var(--video-native-width, 100%), calc((100vh - 300px) * var(--video-aspect, 1.7778)));
+    aspect-ratio: var(--video-aspect, 1.7778);
+    /* 底部留出原生控制条的高度，避免控制条盖住比分牌预览 */
+    margin: 0 auto 44px;
+    background: #000;
+    border-radius: 8px;
 }
 
 .video-stage #match-video {
+    position: absolute;
+    top: 0;
+    left: 0;
     display: block;
+    width: 100%;
+    /* 比舞台高出一个控制条：画面靠上对齐，多出的黑色区域留给原生控制条 */
+    height: calc(100% + 44px);
+    object-fit: contain;
+    object-position: top;
+    border-radius: 8px;
 }
 
 #scoreboard-preview {
     position: absolute;
+    /* 左边距与导出一致：帧宽的 2.5% */
     left: 2.5%;
-    bottom: 15.5%;
+    /* 底边距由 editor.js 按视频比例算出，等于导出中的 2.5% 帧宽 */
+    bottom: var(--scoreboard-bottom, 4.4445%);
     /* 宽度由 editor.js 按 PNG 固有宽度 / renderWidth 设置，保留一个回退值 */
     width: 30%;
     max-width: 100%;
@@ -496,7 +519,8 @@ button.danger:hover {
 
 #match-video {
     width: 100%;
-    max-height: 400px;
+    height: 100%;
+    object-fit: contain;
     background: #000;
     border-radius: 8px;
 }

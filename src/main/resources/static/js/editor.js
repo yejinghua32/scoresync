@@ -6,6 +6,7 @@ if (!Number.isInteger(projectId) || projectId < 1) {
 }
 
 const video = document.getElementById('match-video');
+const videoStage = document.querySelector('.video-stage');
 const eventList = document.getElementById('event-list');
 const saveStatusEl = document.getElementById('save-status');
 const eventModal = document.getElementById('event-modal');
@@ -26,6 +27,23 @@ let activeJobId = null;
 let pollTimer = null;
 let lastPreviewKey = null;
 let previewRequestToken = 0;
+
+/**
+ * 把视频的原始尺寸写入舞台
+ * 舞台据此保持原始比例并按原生像素宽度放大，使画面既不拉伸也尽量清晰
+ */
+function applyVideoMetrics() {
+    const width = video.videoWidth;
+    const height = video.videoHeight;
+    if (!width || !height) return;
+    videoStage.style.setProperty('--video-aspect', (width / height).toFixed(6));
+    videoStage.style.setProperty('--video-native-width', `${width}px`);
+    // 导出把比分牌底边放在距画面底部 2.5% 帧宽处，换算成帧高比例后写入预览图偏移，
+    // 使编辑器预览与导出视频的比分牌位置一致
+    previewImg.style.setProperty('--scoreboard-bottom', `${(2.5 * (width / height)).toFixed(4)}%`);
+}
+
+video.addEventListener('loadedmetadata', applyVideoMetrics);
 
 function setSaveStatus(text, type = 'success') {
     saveStatusEl.textContent = text;
