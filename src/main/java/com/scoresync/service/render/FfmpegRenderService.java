@@ -41,8 +41,22 @@ public class FfmpegRenderService {
      */
     public void execute(long jobId, RenderPlan plan, FfmpegCommand command,
                         Path finalOutput, IntConsumer progressCallback) {
-        VideoProbeResult probe = plan.probe();
+        execute(jobId, plan.workDir(), plan.probe().durationMs(), command, finalOutput, progressCallback);
+    }
 
+    /**
+     * 执行渲染任务
+     * 与渲染计划无关的通用入口，剪辑导出同样使用
+     *
+     * @param jobId            任务ID
+     * @param workDir          工作目录
+     * @param durationMs       输出时长（用于计算进度百分比）
+     * @param command          FFmpeg命令
+     * @param finalOutput      最终输出路径
+     * @param progressCallback 进度回调
+     */
+    public void execute(long jobId, Path workDir, long durationMs, FfmpegCommand command,
+                        Path finalOutput, IntConsumer progressCallback) {
         ProcessBuilder builder = new ProcessBuilder(command.arguments());
         builder.redirectErrorStream(false);
         Process process;
@@ -53,10 +67,10 @@ public class FfmpegRenderService {
         }
         runningProcesses.put(jobId, process);
 
-        Path logFile = plan.workDir().resolve("ffmpeg.log");
+        Path logFile = workDir.resolve("ffmpeg.log");
         try {
             writeStreamToFile(process.getErrorStream(), logFile);
-            readProgress(process, probe.durationMs(), progressCallback);
+            readProgress(process, durationMs, progressCallback);
             int exitCode = process.waitFor();
             if (exitCode != 0) {
                 throw new IllegalStateException("FFmpeg 退出码: " + exitCode);
@@ -105,7 +119,20 @@ public class FfmpegRenderService {
      * @return 清理的进程数量
      */
     public int killOrphanedProcesses() {
-        String workDir = appProperties.getRender().getWorkDir();
+        int killed = killOrphanedProcessesIn(appProperties.getRender().getWorkDir());
+        // 剪辑导出使用独立工作目录，需要一并清理
+        killed += killOrphanedProcessesIn(appProperties.getClip().getWorkDir());
+        return killed;
+    }
+
+    /**
+     * 清理指定工作目录下的残留 FFmpeg 进程
+     */
+    private int killOrphanedProcessesIn(String workDir) {
+        if (workDir == null || workDir.isBlank()) {
+            return 0;
+        }
+        String normalizedWorkDir = workDir.replace('\\', '/');
         int[] killed = {0};
         ProcessHandle.allProcesses()
                 .filter(p -> {
@@ -113,7 +140,7 @@ public class FfmpegRenderService {
                     if (!commandLine.replace('\\', '/').toLowerCase().contains("ffmpeg")) {
                         return false;
                     }
-                    return commandLine.replace('\\', '/').contains(workDir.replace('\\', '/'));
+                    return commandLine.replace('\\', '/').contains(normalizedWorkDir);
                 })
                 .forEach(p -> {
                     try {

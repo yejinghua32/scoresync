@@ -16,7 +16,7 @@
 **没有 Flyway/Liquibase**。以下两套机制必须保持同步：
 
 1. `src/main/resources/schema.sql` — 幂等的 `CREATE TABLE IF NOT EXISTS`。通过 `spring.sql.init.mode: always` 在**每次**启动时执行。
-2. `src/main/java/com/scoresync/config/SchemaMigrationRunner.java` — 通过 `PRAGMA table_info(...)` 检查守卫的 `ALTER TABLE ... ADD COLUMN`。
+2. `src/main/java/com/scoresync/config/SchemaMigrationRunner.java` — 通过 `PRAGMA table_info(...)` 检查守卫的 `ALTER TABLE ... ADD COLUMN`，并以存在性守卫创建新表。
 
 新增列时：在 `schema.sql` 中更新以适配全新安装，**同时**在 `SchemaMigrationRunner` 中添加受守卫的 ALTER 以适配既有数据库。
 
@@ -35,7 +35,9 @@
 - **包结构与 `需求.txt` 不一致**（后者部分已过时 — 以代码为准）。使用 `web`（控制器）、`repository`（JDBC 仓储，无 ORM）、`domain`（不可变 Java records）、`support`（自定义异常）、`service.render`（FFmpeg 层）。`需求.txt` 中的 `controller`/`mapper`/`entity` 命名是错的。
 - **比分是派生出来的，从不持久化。** 只存储 `score_event` 行（`match_id`、`video_time_ms`、`player_side`、`sequence_no`）。局比分、是否完成本局、当前发球方等都由 `ScoreReplayService.replay(targetWins, events)` 推导。该方法同时是校验器 — 向已结束的比赛添加比分会抛出 `DomainValidationException`。**不要**新增 `score_a`/`score_b` 列。
 - **全进程同一时刻仅允许一个渲染任务。** 由 `RenderJobService` 互斥锁 + `render_job` 数据库查询共同保证。第二次 `POST /api/projects/{id}/render-jobs` → 409，返回 `{ "code": "RENDER_JOB_ACTIVE" }`。启动时 `RenderJobService.failInterruptedJobs()`（一个 `CommandLineRunner`，`@Order(20)`）会把崩溃遗留的 QUEUED/RUNNING 任务标记为 FAILED。
+- **剪辑导出与记分导出共用同一把占用锁。** `ExportOccupancyService` 持有全进程互斥锁并同时查询 `render_job` 与 `clip_render_job` 两张表；两类导出互相冲突（409）。记分导出用 `RENDER_JOB_ACTIVE`，剪辑导出用 `CLIP_RENDER_JOB_ACTIVE`。
 - **媒体按已登记的 asset ID 流式返回**（`GET /api/media/{assetId}`，支持 `Range` 的 HTTP 206）。文件**从不**复制，只存储绝对路径。不要新增可读取任意本地路径的接口。
+- **删除被剪辑项目引用的视频资产同样被拒绝**（"视频正在使用"规则）。
 - **备份/恢复使用 JSON**（`BackupController`）：从编辑器导出，导入到视频库。导入前需先重新登记与原视频元信息（size + mtime）相同的视频。
 
 ## FFmpeg
@@ -50,7 +52,15 @@
 
 ## 前端
 
-`src/main/resources/static/` 下的纯 HTML + ES 模块（`index.html` = 视频库，`editor.html` = 记分）。**无构建步骤、无框架、无 bundler。** `static/js/api.js` 是唯一的 HTTP 辅助文件。键盘快捷键：`A`/`L`（左右两侧选手得分）、`Space`（播放/暂停）、`←/→`（按 `scoresync.editor.seek-seconds` 跳转，默认 1 秒）。
+`src/main/resources/static/` 下的纯 HTML + ES 模块（`index.html` = 视频库，`editor.html` = 记分，`clip-editor.html` = 剪辑）。**无构建步骤、无框架、无 bundler。** `static/js/api.js` 是唯一的 HTTP 辅助文件。键盘快捷键：`A`/`L`（左右两侧选手得分）、`Space`（播放/暂停）、`←/→`（按 `scoresync.editor.seek-seconds` 跳转，默认 1 秒）。
+
+## 视频剪辑（clip）
+
+- **剪辑项目（`clip_project`）** 绑定一个 `video_asset`，保存项目名、两个步长（大步长默认 10、小步长默认 5）以及建立项目时的源文件大小与修改时间。源文件变化后该指纹不匹配，`ClipSourceValidator` 会拒绝继续编辑与导出（409 `CLIP_SOURCE_CHANGED`），项目本身保留。
+- **片段（`clip_segment`）** 是不重叠的 KEEP/DROP 半开区间 `[startFrame, endFrame)`。**未标记帧由区间之间的空隙派生**，不逐帧存库；未标记状态在界面上有独立底色，不会被误显示为舍弃。提交新片段时在一个事务内拆分旧区间、覆盖、合并相邻同类区间。
+- **帧索引** 由 `ClipFrameIndexService` 用 ffprobe 逐帧读取显示时间戳建立，**不依赖平均帧率换算**（兼容可变帧率）。索引与缩略图缓存位于 `${SCORESYNC_DATA_DIR}/clip-cache`，按资产 ID + 文件大小 + 修改时间失效；索引在后台线程建立，不阻塞启动。
+- **导出** 由 `ClipFfmpegCommandFactory` 用 `select` 滤镜按**解码帧序号**精确选帧，再用分段 `setpts` 把各段时间轴接成连续序列；音频按帧索引给出的时间戳切取对应区间后同样重排。**全程重新编码**，不用关键帧 `-c copy`，也不按 `frameRate × seconds` 近似选帧。无音轨的源视频走单独的 `-an` 分支。
+- 导出成功后先校验文件，再通过 `VideoLibraryService.registerExported` 以 `SCANNED` 类型登记回视频库；失败或取消不登记并清理半成品。重复导出按任务 ID 生成不同文件名与新资产，不覆盖既有结果。
 
 ## 约定
 

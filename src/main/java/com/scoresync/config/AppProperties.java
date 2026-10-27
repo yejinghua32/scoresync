@@ -22,6 +22,7 @@ public class AppProperties {
     private Storage storage = new Storage();
     private Editor editor = new Editor();
     private Render render = new Render();
+    private Clip clip = new Clip();
 
     public Storage getStorage() {
         return storage;
@@ -29,6 +30,14 @@ public class AppProperties {
 
     public void setStorage(Storage storage) {
         this.storage = storage;
+    }
+
+    public Clip getClip() {
+        return clip;
+    }
+
+    public void setClip(Clip clip) {
+        this.clip = clip;
     }
 
     public Editor getEditor() {
@@ -143,6 +152,67 @@ public class AppProperties {
 
         public void setAudioBitrate(String audioBitrate) {
             this.audioBitrate = audioBitrate;
+        }
+    }
+
+    /**
+     * 剪辑配置
+     * 帧索引与缩略图缓存位于数据目录下，导出使用独立的工作目录
+     */
+    public static class Clip {
+        private String cacheDir = System.getProperty("user.home") + "/.scoresync/clip-cache";
+        private String workDir = System.getProperty("user.home") + "/.scoresync/clip-render-work";
+        private int thumbnailWidth = 320;
+        private int maxCachedThumbnails = 600;
+        private int maxConcurrentThumbnailJobs = 2;
+        private int thumbnailSeekFrames = 30;
+
+        public String getCacheDir() {
+            return cacheDir;
+        }
+
+        public void setCacheDir(String cacheDir) {
+            this.cacheDir = cacheDir;
+        }
+
+        public String getWorkDir() {
+            return workDir;
+        }
+
+        public void setWorkDir(String workDir) {
+            this.workDir = workDir;
+        }
+
+        public int getThumbnailWidth() {
+            return thumbnailWidth;
+        }
+
+        public void setThumbnailWidth(int thumbnailWidth) {
+            this.thumbnailWidth = thumbnailWidth;
+        }
+
+        public int getMaxCachedThumbnails() {
+            return maxCachedThumbnails;
+        }
+
+        public void setMaxCachedThumbnails(int maxCachedThumbnails) {
+            this.maxCachedThumbnails = maxCachedThumbnails;
+        }
+
+        public int getMaxConcurrentThumbnailJobs() {
+            return maxConcurrentThumbnailJobs;
+        }
+
+        public void setMaxConcurrentThumbnailJobs(int maxConcurrentThumbnailJobs) {
+            this.maxConcurrentThumbnailJobs = maxConcurrentThumbnailJobs;
+        }
+
+        public int getThumbnailSeekFrames() {
+            return thumbnailSeekFrames;
+        }
+
+        public void setThumbnailSeekFrames(int thumbnailSeekFrames) {
+            this.thumbnailSeekFrames = thumbnailSeekFrames;
         }
     }
 }

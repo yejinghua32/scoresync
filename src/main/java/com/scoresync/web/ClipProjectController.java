@@ -1,0 +1,165 @@
+package com.scoresync.web;
+
+import com.scoresync.domain.ClipSegmentSpec;
+import com.scoresync.domain.ClipSegmentType;
+import com.scoresync.service.ClipProjectService;
+import com.scoresync.service.render.ClipFrameIndexService;
+import com.scoresync.service.render.ClipThumbnailService;
+import com.scoresync.support.DomainValidationException;
+import com.scoresync.web.dto.ClipAllFrameTimesResponse;
+import com.scoresync.web.dto.ClipFrameIndexStatusResponse;
+import com.scoresync.web.dto.ClipProjectResponse;
+import com.scoresync.web.dto.ClipSegmentRequest;
+import com.scoresync.web.dto.CreateClipProjectRequest;
+import com.scoresync.web.dto.SubmitClipSegmentsRequest;
+import com.scoresync.web.dto.UpdateClipProjectRequest;
+import jakarta.validation.Valid;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
+
+/**
+ * 剪辑项目控制器
+ * 负责剪辑项目的创建、查询、配置更新、片段存档与帧缩略图
+ */
+@RestController
+@RequestMapping("/api/clip-projects")
+public class ClipProjectController {
+
+    private final ClipProjectService clipProjectService;
+    private final ClipFrameIndexService frameIndexService;
+    private final ClipThumbnailService thumbnailService;
+
+    public ClipProjectController(ClipProjectService clipProjectService,
+                                 ClipFrameIndexService frameIndexService,
+                                 ClipThumbnailService thumbnailService) {
+        this.clipProjectService = clipProjectService;
+        this.frameIndexService = frameIndexService;
+        this.thumbnailService = thumbnailService;
+    }
+
+    /**
+     * 创建剪辑项目
+     */
+    @PostMapping
+    public ResponseEntity<ClipProjectResponse> create(@Valid @RequestBody CreateClipProjectRequest request) {
+        var detail = clipProjectService.create(request.name(), request.videoId());
+        return ResponseEntity.status(HttpStatus.CREATED).body(ClipProjectResponse.from(detail));
+    }
+
+    /**
+     * 列出全部剪辑项目
+     */
+    @GetMapping
+    public List<ClipProjectResponse> list() {
+        return clipProjectService.list().stream().map(ClipProjectResponse::from).toList();
+    }
+
+    /**
+     * 读取剪辑项目详情（含已存档片段）
+     */
+    @GetMapping("/{id}")
+    public ClipProjectResponse get(@PathVariable long id) {
+        return ClipProjectResponse.from(clipProjectService.detail(id));
+    }
+
+    /**
+     * 更新剪辑项目名称与两个步长
+     */
+    @PutMapping("/{id}")
+    public ClipProjectResponse update(@PathVariable long id,
+                                       @Valid @RequestBody UpdateClipProjectRequest request) {
+        return ClipProjectResponse.from(clipProjectService.updateConfig(
+                id, request.name(), request.largeStep(), request.smallStep()));
+    }
+
+    /**
+     * 提交片段（存档）
+     * 新片段覆盖重叠的旧片段，相邻同类片段自动合并
+     */
+    @PostMapping("/{id}/segments")
+    public ClipProjectResponse submitSegments(@PathVariable long id,
+                                               @Valid @RequestBody SubmitClipSegmentsRequest request) {
+        clipProjectService.commitSegments(id, toSpecs(request.segments()));
+        return ClipProjectResponse.from(clipProjectService.detail(id));
+    }
+
+    /**
+     * 删除剪辑项目
+     */
+    @DeleteMapping("/{id}")
+    public ResponseEntity<Void> delete(@PathVariable long id) {
+        clipProjectService.delete(id);
+        return ResponseEntity.noContent().build();
+    }
+
+    /**
+     * 查询帧索引状态
+     * 索引未就绪时会触发后台建立，前端轮询本接口直到 READY
+     */
+    @GetMapping("/{id}/frame-index")
+    public ClipFrameIndexStatusResponse frameIndexStatus(@PathVariable long id) {
+        var detail = clipProjectService.detail(id);
+        var project = detail.project();
+        if (project.frameIndexStatus() != com.scoresync.domain.ClipFrameIndexStatus.READY) {
+            frameIndexService.requestBuild(project);
+            project = clipProjectService.detail(id).project();
+        }
+        return new ClipFrameIndexStatusResponse(project.frameIndexStatus().name(),
+                project.totalFrames(), project.updatedAt());
+    }
+
+    /**
+     * 查询全部帧在源视频中的时间
+     * 一次取回完整映射，前端用二分查找换算位置，避免逐段请求
+     */
+    @GetMapping("/{id}/frame-times")
+    public ClipAllFrameTimesResponse allFrameTimes(@PathVariable long id) {
+        var project = clipProjectService.detail(id).project();
+        var index = frameIndexService.requireIndex(project);
+        long[] times = new long[index.frameCount()];
+        for (int i = 0; i < times.length; i++) {
+            times[i] = index.previewUs(i) / 1000L;
+        }
+        return new ClipAllFrameTimesResponse(index.frameCount(), times);
+    }
+
+    /**
+     * 读取指定帧的缩略图（PNG）
+     */
+    @GetMapping("/{id}/frames/{frameNo}/thumbnail")
+    public ResponseEntity<byte[]> thumbnail(@PathVariable long id, @PathVariable int frameNo) {
+        var detail = clipProjectService.detail(id);
+        byte[] png = thumbnailService.thumbnail(detail.project(), frameNo);
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.IMAGE_PNG);
+        headers.setCacheControl("no-store");
+        return ResponseEntity.ok().headers(headers).body(png);
+    }
+
+    private List<ClipSegmentSpec> toSpecs(List<ClipSegmentRequest> requests) {
+        if (requests == null || requests.isEmpty()) {
+            throw new DomainValidationException("没有需要提交的片段");
+        }
+        return requests.stream()
+                .map(request -> new ClipSegmentSpec(parseType(request.type()),
+                        request.startFrame(), request.endFrame()))
+                .toList();
+    }
+
+    private ClipSegmentType parseType(String value) {
+        if (value == null) {
+            throw new DomainValidationException("片段类型只能是 KEEP 或 DROP");
+        }
+        try {
+            return ClipSegmentType.valueOf(value.trim().toUpperCase());
+        } catch (IllegalArgumentException e) {
+            throw new DomainValidationException("片段类型只能是 KEEP 或 DROP");
+        }
+    }
+}

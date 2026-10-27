@@ -3,6 +3,7 @@ package com.scoresync.service;
 import com.scoresync.domain.VideoAsset;
 import com.scoresync.domain.VideoOriginType;
 import com.scoresync.domain.VideoSource;
+import com.scoresync.repository.ClipProjectRepository;
 import com.scoresync.repository.MatchProjectRepository;
 import com.scoresync.repository.VideoAssetRepository;
 import com.scoresync.repository.VideoSourceRepository;
@@ -30,12 +31,14 @@ public class VideoLibraryService {
     private final VideoSourceRepository sourceRepo;
     private final VideoAssetRepository assetRepo;
     private final MatchProjectRepository projectRepo;
+    private final ClipProjectRepository clipProjectRepo;
 
     public VideoLibraryService(VideoSourceRepository sourceRepo, VideoAssetRepository assetRepo,
-                               MatchProjectRepository projectRepo) {
+                               MatchProjectRepository projectRepo, ClipProjectRepository clipProjectRepo) {
         this.sourceRepo = sourceRepo;
         this.assetRepo = assetRepo;
         this.projectRepo = projectRepo;
+        this.clipProjectRepo = clipProjectRepo;
     }
 
     /**
@@ -153,8 +156,10 @@ public class VideoLibraryService {
     public void removeAsset(long assetId) {
         VideoAsset asset = assetRepo.findById(assetId);
         int usedBy = projectRepo.countByVideoAssetId(asset.id());
-        if (usedBy > 0) {
-            throw new VideoInUseException("VIDEO_IN_USE", "该视频正被 " + usedBy + " 个项目使用，无法移除");
+        int usedByClips = clipProjectRepo.countByVideoAssetId(asset.id());
+        if (usedBy > 0 || usedByClips > 0) {
+            int total = usedBy + usedByClips;
+            throw new VideoInUseException("VIDEO_IN_USE", "该视频正被 " + total + " 个项目使用，无法移除");
         }
         assetRepo.delete(assetId);
     }
@@ -176,6 +181,49 @@ public class VideoLibraryService {
             throw new MediaUnavailableException("Media file no longer available: " + assetId);
         }
         return asset;
+    }
+
+    /**
+     * 注册导出的视频文件
+     * 导出成功后把新文件登记回视频库，来源类型沿用 SCANNED
+     *
+     * @param path 导出文件路径
+     * @return 新创建的视频资产对象
+     */
+    @Transactional
+    public VideoAsset registerExported(Path path) {
+        try {
+            Path real = path.toRealPath();
+            if (!Files.isRegularFile(real) || !Files.isReadable(real)) {
+                throw new DomainValidationException("导出文件不可读取");
+            }
+            long size = Files.size(real);
+            long modified = Files.getLastModifiedTime(real).toMillis();
+            Long sourceId = findOrCreateExportsSource(real.getParent());
+            long id = assetRepo.insert(sourceId, real.toString(), real.getFileName().toString(),
+                    size, modified, VideoOriginType.SCANNED);
+            return new VideoAsset(id, sourceId, real.toString(), real.getFileName().toString(),
+                    size, modified, VideoOriginType.SCANNED, Instant.now(), Instant.now());
+        } catch (IOException e) {
+            throw new DomainValidationException("导出文件不可读取");
+        }
+    }
+
+    /**
+     * 找到或创建指向导出目录的视频源
+     * 这样导出的文件在视频库里也能像普通扫描到的视频一样被使用
+     */
+    private Long findOrCreateExportsSource(Path exportsDir) {
+        if (exportsDir == null) {
+            return null;
+        }
+        String root = exportsDir.toString();
+        for (VideoSource source : sourceRepo.findAll()) {
+            if (root.equals(source.rootPath())) {
+                return source.id();
+            }
+        }
+        return sourceRepo.insert(root).id();
     }
 
     /**

@@ -25,7 +25,6 @@ import java.util.Optional;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * 渲染任务服务
@@ -47,8 +46,8 @@ public class RenderJobService implements CommandLineRunner {
     private final FfmpegCommandFactory commandFactory;
     private final FfmpegRenderService renderService;
     private final AppProperties appProperties;
+    private final ExportOccupancyService exportOccupancyService;
 
-    private final ReentrantLock mutex = new ReentrantLock();
     private final ExecutorService executor = Executors.newSingleThreadExecutor(r -> {
         Thread t = new Thread(r, "render-job-worker");
         t.setDaemon(true);
@@ -63,7 +62,8 @@ public class RenderJobService implements CommandLineRunner {
                             RenderPlanService planService,
                             FfmpegCommandFactory commandFactory,
                             FfmpegRenderService renderService,
-                            AppProperties appProperties) {
+                            AppProperties appProperties,
+                            ExportOccupancyService exportOccupancyService) {
         this.repository = repository;
         this.projectRepository = projectRepository;
         this.videoAssetRepository = videoAssetRepository;
@@ -73,6 +73,7 @@ public class RenderJobService implements CommandLineRunner {
         this.commandFactory = commandFactory;
         this.renderService = renderService;
         this.appProperties = appProperties;
+        this.exportOccupancyService = exportOccupancyService;
     }
 
     /**
@@ -83,11 +84,7 @@ public class RenderJobService implements CommandLineRunner {
      * @throws RenderJobConflictException 如果已有任务在运行
      */
     public RenderJob start(long matchId) {
-        mutex.lock();
-        try {
-            if (repository.findActive().isPresent()) {
-                throw new RenderJobConflictException("RENDER_JOB_ACTIVE", "已有导出任务正在执行");
-            }
+        return exportOccupancyService.runExclusively("RENDER_JOB_ACTIVE", "已有导出任务正在执行", () -> {
             var project = projectRepository.findById(matchId);
             if (project == null) {
                 throw new DomainNotFoundException("比赛项目不存在");
@@ -98,9 +95,7 @@ public class RenderJobService implements CommandLineRunner {
             executor.submit(() -> runJob(job.id()));
 
             return job;
-        } finally {
-            mutex.unlock();
-        }
+        });
     }
 
     /**

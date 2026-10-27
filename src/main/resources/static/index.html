@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>乒乓球视频比分编辑器</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
     <link rel="stylesheet" href="/css/app.css">
 </head>
 <body>
@@ -92,6 +93,21 @@
                 </tr>
                 </thead>
                 <tbody id="video-list"></tbody>
+            </table>
+        </div>
+        <div class="card">
+            <div class="card-title">剪辑项目 <span id="clip-project-count" class="count-badge">0</span></div>
+            <table class="video-table">
+                <thead>
+                <tr>
+                    <th class="name">项目名称</th>
+                    <th class="size">视频</th>
+                    <th class="source">步长</th>
+                    <th class="time">创建时间</th>
+                    <th class="actions">操作</th>
+                </tr>
+                </thead>
+                <tbody id="clip-project-list"></tbody>
             </table>
         </div>
     </div>
@@ -189,8 +205,7 @@
     </div>
 </div>
 
-<div id="edit-project-modal" class="modal-overlay hidden">
-    <div class="modal">
+<div id="edit-project-modal" class="modal-overlay hidden">    <div class="modal">
         <h2>编辑项目</h2>
         <form id="edit-project-form">
             <input type="hidden" id="edit-project-id">
@@ -230,6 +245,26 @@
 
 <datalist id="player-options"></datalist>
 <datalist id="edit-player-options"></datalist>
+
+<div id="clip-modal" class="modal-overlay hidden">
+    <div class="modal">
+        <h2>创建剪辑项目</h2>
+        <form id="clip-project-form">
+            <input type="hidden" id="clip-video-id">
+            <div class="form-group">
+                <label>剪辑项目名称</label>
+                <input type="text" id="clip-project-name" required placeholder="例如：决赛第一局">
+            </div>
+            <p style="font-size:0.8125rem;color:var(--text-dim);margin-bottom:1rem">
+                剪辑项目可以反复标记保留与舍弃的片段，完成后导出为新的 MP4 视频。
+            </p>
+            <div class="modal-actions">
+                <button type="button" id="clip-modal-cancel" class="secondary">取消</button>
+                <button type="submit" id="clip-modal-submit">创建</button>
+            </div>
+        </form>
+    </div>
+</div>
 
 <div id="toast-host" class="toast-host"></div>
 

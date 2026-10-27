@@ -67,7 +67,8 @@ class MediaStreamingServiceTest {
                 )""");
         sourceRepo = new VideoSourceRepository(jdbc);
         assetRepo = new VideoAssetRepository(jdbc);
-        library = new VideoLibraryService(sourceRepo, assetRepo, new MatchProjectRepository(jdbc));
+        library = new VideoLibraryService(sourceRepo, assetRepo, new MatchProjectRepository(jdbc),
+                new com.scoresync.repository.ClipProjectRepository(jdbc));
         streaming = new MediaStreamingService(assetRepo);
     }
 

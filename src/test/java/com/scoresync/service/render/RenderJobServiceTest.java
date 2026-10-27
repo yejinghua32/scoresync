@@ -4,6 +4,7 @@ import com.scoresync.config.AppProperties;
 import com.scoresync.domain.RenderJob;
 import com.scoresync.domain.RenderJobStatus;
 import com.scoresync.domain.VideoProbeResult;
+import com.scoresync.repository.ClipRenderJobRepository;
 import com.scoresync.repository.MatchProjectRepository;
 import com.scoresync.repository.RenderJobRepository;
 import com.scoresync.repository.ScoreEventRepository;
@@ -74,6 +75,12 @@ class RenderJobServiceTest {
                 "  output_path TEXT NULL, failure_message TEXT NULL," +
                 "  created_at TEXT NOT NULL, started_at TEXT NULL, finished_at TEXT NULL" +
                 ")");
+        jdbc.execute("CREATE TABLE clip_render_job (" +
+                "  id INTEGER PRIMARY KEY, project_id INTEGER NOT NULL," +
+                "  status TEXT NOT NULL, progress_percent INTEGER NOT NULL DEFAULT 0," +
+                "  output_path TEXT NULL, output_asset_id INTEGER NULL, failure_message TEXT NULL," +
+                "  created_at TEXT NOT NULL, started_at TEXT NULL, finished_at TEXT NULL" +
+                ")");
 
         jdbc.update("INSERT INTO video_source (id, root_path, enabled, created_at, updated_at) VALUES (1, '/v', 1, '2026-08-04T00:00:00Z', '2026-08-04T00:00:00Z')");
         jdbc.update("INSERT INTO video_asset (id, source_id, absolute_path, display_name, file_size, modified_at, origin_type, created_at, updated_at) VALUES (1, 1, '/v/test.mp4', '测试', 1000, 0, 'PICKED', '2026-08-04T00:00:00Z', '2026-08-04T00:00:00Z')");
@@ -98,7 +105,8 @@ class RenderJobServiceTest {
         FfmpegCommandFactory commandFactory = new FfmpegCommandFactory(appProperties);
 
         service = new RenderJobService(repository, projects, videos, events,
-                probeService, planService, commandFactory, fakeRender, appProperties);
+                probeService, planService, commandFactory, fakeRender, appProperties,
+                new ExportOccupancyService(repository, new ClipRenderJobRepository(jdbc)));
     }
 
     @Test

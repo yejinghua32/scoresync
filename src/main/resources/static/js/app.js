@@ -5,6 +5,7 @@ let assets = [];
 let projectPage = {page: 0, size: 10, total: 0, totalPages: 0, items: []};
 let teamMembers = [];
 let templates = [];
+let clipProjects = [];
 
 document.addEventListener('DOMContentLoaded', async () => {
     initNavigation();
@@ -12,13 +13,70 @@ document.addEventListener('DOMContentLoaded', async () => {
         loadProjects(0),
         loadSources(),
         loadVideos(),
-        loadTeamMembers()
+        loadTeamMembers(),
+        loadClipProjects()
     ]);
     renderProjects();
     renderSources();
     renderVideos();
     renderTemplates();
+    renderClipProjects();
 });
+
+/**
+ * 载入剪辑项目列表
+ */
+async function loadClipProjects() {
+    try {
+        clipProjects = await api('/api/clip-projects') || [];
+    } catch (e) {
+        clipProjects = [];
+    }
+}
+
+function renderClipProjects() {
+    const tbody = document.getElementById('clip-project-list');
+    if (!tbody) {
+        return;
+    }
+    document.getElementById('clip-project-count').textContent = clipProjects.length;
+    if (clipProjects.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--text-dim)">暂无剪辑项目</td></tr>';
+        return;
+    }
+    tbody.innerHTML = clipProjects.map(p => {
+        const created = p.createdAt ? new Date(p.createdAt).toLocaleString('zh-CN') : '-';
+        return `<tr class="clickable" onclick="openClipProject(${p.id})">
+      <td class="name" title="${escapeHtml(p.name)}">${escapeHtml(p.name)}</td>
+      <td class="size">${escapeHtml(p.videoName || '-')}</td>
+      <td class="source">${p.largeStep}/${p.smallStep}</td>
+      <td class="time">${created}</td>
+      <td class="actions"><button class="danger delete-btn" onclick="deleteClipProject(event, ${p.id})">删除</button></td>
+    </tr>`;
+    }).join('');
+}
+
+function openClipProject(id) {
+    location.assign(`/clip-editor.html?projectId=${id}`);
+}
+
+async function deleteClipProject(event, id) {
+    if (event) event.stopPropagation();
+    const item = clipProjects.find(p => p.id === id);
+    const name = item ? item.name : `#${id}`;
+    if (!confirm(`确定删除剪辑项目「${name}」吗？此操作不可恢复。`)) return;
+    try {
+        await api(`/api/clip-projects/${id}`, {method: 'DELETE'});
+        await loadClipProjects();
+        renderClipProjects();
+        showToast('剪辑项目已删除', 'success');
+    } catch (e) {
+        showToast(e.message, 'error');
+    }
+}
+
+window.openClipProject = openClipProject;
+window.deleteClipProject = deleteClipProject;
 
 const VIEWS = ['projects', 'videos', 'settings'];
 
@@ -485,7 +543,8 @@ function renderVideos() {
         const canCreate = a.readable !== false;
         const rowClass = canCreate ? 'clickable' : 'unavailable';
         const actionBtn = canCreate
-            ? `<button onclick="openCreateModal(${a.id})">创建项目</button>`
+            ? `<button onclick="openCreateModal(${a.id})">创建项目</button>
+               <button class="secondary" onclick="openClipModal(event, ${a.id})">剪辑</button>`
             : `<span class="badge">不可读</span>`;
         return `<tr class="${rowClass}" ${canCreate ? `onclick="openCreateModal(${a.id})"` : ''}>
       <td class="name" title="${escapeHtml(a.displayName)}">${escapeHtml(a.displayName)}</td>
@@ -496,6 +555,52 @@ function renderVideos() {
     </tr>`;
     }).join('');
 }
+
+/**
+ * 打开剪辑项目创建弹窗
+ */
+function openClipModal(event, videoId) {
+    if (event) event.stopPropagation();
+    const asset = assets.find(a => a.id === videoId);
+    if (!asset) {
+        showToast('未找到对应的视频资产，请刷新页面后重试', 'error');
+        return;
+    }
+    if (asset.readable === false) {
+        showToast('该视频不可读，无法创建剪辑项目', 'error');
+        return;
+    }
+    document.getElementById('clip-video-id').value = videoId;
+    document.getElementById('clip-project-name').value = asset.displayName.replace(/\.[^.]+$/, '');
+    document.getElementById('clip-modal').classList.remove('hidden');
+}
+
+async function createClipProject(event) {
+    event.preventDefault();
+    const videoId = Number(document.getElementById('clip-video-id').value);
+    const name = document.getElementById('clip-project-name').value.trim();
+    if (!name) {
+        showToast('请输入剪辑项目名称', 'error');
+        return;
+    }
+    const submit = document.getElementById('clip-modal-submit');
+    submit.disabled = true;
+    try {
+        const project = await api('/api/clip-projects', {
+            method: 'POST',
+            body: JSON.stringify({name, videoId})
+        });
+        location.assign(`/clip-editor.html?projectId=${project.id}`);
+    } catch (err) {
+        showToast(err.message, 'error');
+        submit.disabled = false;
+    }
+}
+
+document.getElementById('clip-modal-cancel').addEventListener('click', () => {
+    document.getElementById('clip-modal').classList.add('hidden');
+    document.getElementById('clip-modal-submit').disabled = false;
+});
 
 /**
  * 填充队名候选列表
@@ -776,9 +881,12 @@ function showToast(message, type = 'success') {
 window.scanSource = scanSource;
 window.deleteSource = deleteSource;
 window.openCreateModal = openCreateModal;
+window.openClipModal = openClipModal;
 window.openProject = openProject;
 window.deleteProject = deleteProject;
 window.deleteVideo = deleteVideo;
 window.exportProjectBackup = exportProjectBackup;
 window.editTemplate = editTemplate;
 window.deleteTemplate = deleteTemplate;
+
+document.getElementById('clip-project-form').addEventListener('submit', createClipProject);

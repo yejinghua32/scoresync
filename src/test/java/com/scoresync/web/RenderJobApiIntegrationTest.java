@@ -225,7 +225,7 @@ class RenderJobApiIntegrationTest {
         final java.util.concurrent.atomic.AtomicBoolean active = new java.util.concurrent.atomic.AtomicBoolean(false);
 
         FakeRenderJobService() {
-            super(null, null, null, null, null, null, null, null, null);
+            super(null, null, null, null, null, null, null, null, null, null);
         }
 
         long nextJobId() {

@@ -58,6 +58,18 @@ class ProjectApiIntegrationTest {
                   created_at TEXT NOT NULL, updated_at TEXT NOT NULL
                 )""");
         jdbc.execute("""
+                CREATE TABLE clip_project (
+                  id INTEGER PRIMARY KEY, name TEXT NOT NULL,
+                  video_asset_id INTEGER NOT NULL REFERENCES video_asset(id),
+                  large_step INTEGER NOT NULL DEFAULT 10 CHECK (large_step > 0),
+                  small_step INTEGER NOT NULL DEFAULT 5 CHECK (small_step > 0),
+                  source_file_size INTEGER NOT NULL, source_modified_at INTEGER NOT NULL,
+                  total_frames INTEGER NULL,
+                  frame_index_status TEXT NOT NULL DEFAULT 'PENDING'
+                    CHECK (frame_index_status IN ('PENDING','BUILDING','READY','FAILED')),
+                  created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+                )""");
+        jdbc.execute("""
                 CREATE TABLE match_project (
                   id INTEGER PRIMARY KEY, name TEXT NOT NULL,
                   video_asset_id INTEGER NOT NULL REFERENCES video_asset(id), duration_ms INTEGER NOT NULL CHECK (duration_ms > 0),
@@ -92,7 +104,8 @@ class ProjectApiIntegrationTest {
         com.scoresync.service.ScoreReplayService replayService = new com.scoresync.service.ScoreReplayService();
         com.scoresync.service.ProjectService projectService = new com.scoresync.service.ProjectService(projects, assets, events, renderJobs, replayService);
         com.scoresync.service.ScoreEventService scoreEventService = new com.scoresync.service.ScoreEventService(projects, assets, events, replayService, projectService);
-        com.scoresync.service.VideoLibraryService videoLibraryService = new com.scoresync.service.VideoLibraryService(sources, assets, projects);
+        com.scoresync.service.VideoLibraryService videoLibraryService = new com.scoresync.service.VideoLibraryService(sources, assets, projects,
+                new com.scoresync.repository.ClipProjectRepository(jdbc));
         com.scoresync.service.MediaStreamingService mediaStreamingService = new com.scoresync.service.MediaStreamingService(assets);
         com.scoresync.service.NativeFilePickerService filePickerService = new com.scoresync.service.AwtNativeFilePickerService();
 
@@ -338,6 +351,18 @@ class ProjectApiIntegrationTest {
                   created_at TEXT NOT NULL, updated_at TEXT NOT NULL
                 )""");
         jdbc.execute("""
+                CREATE TABLE clip_project (
+                  id INTEGER PRIMARY KEY, name TEXT NOT NULL,
+                  video_asset_id INTEGER NOT NULL REFERENCES video_asset(id),
+                  large_step INTEGER NOT NULL DEFAULT 10 CHECK (large_step > 0),
+                  small_step INTEGER NOT NULL DEFAULT 5 CHECK (small_step > 0),
+                  source_file_size INTEGER NOT NULL, source_modified_at INTEGER NOT NULL,
+                  total_frames INTEGER NULL,
+                  frame_index_status TEXT NOT NULL DEFAULT 'PENDING'
+                    CHECK (frame_index_status IN ('PENDING','BUILDING','READY','FAILED')),
+                  created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+                )""");
+        jdbc.execute("""
                 CREATE TABLE match_project (
                   id INTEGER PRIMARY KEY, name TEXT NOT NULL,
                   video_asset_id INTEGER NOT NULL REFERENCES video_asset(id), duration_ms INTEGER NOT NULL CHECK (duration_ms > 0),
@@ -370,7 +395,8 @@ class ProjectApiIntegrationTest {
         com.scoresync.service.ScoreReplayService replayService = new com.scoresync.service.ScoreReplayService();
         com.scoresync.service.ProjectService projectService = new com.scoresync.service.ProjectService(projects, assets, events, new RenderJobRepository(jdbc), replayService);
         com.scoresync.service.ScoreEventService scoreEventService = new com.scoresync.service.ScoreEventService(projects, assets, events, replayService, projectService);
-        com.scoresync.service.VideoLibraryService videoLibraryService = new com.scoresync.service.VideoLibraryService(sources, assets, projects);
+        com.scoresync.service.VideoLibraryService videoLibraryService = new com.scoresync.service.VideoLibraryService(sources, assets, projects,
+                new com.scoresync.repository.ClipProjectRepository(jdbc));
         com.scoresync.service.MediaStreamingService mediaStreamingService = new com.scoresync.service.MediaStreamingService(assets);
         com.scoresync.service.NativeFilePickerService filePickerService = new com.scoresync.service.AwtNativeFilePickerService();
         backupService = new BackupService(projects, assets, events, replayService, projectService);

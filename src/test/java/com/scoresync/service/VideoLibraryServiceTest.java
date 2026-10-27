@@ -3,6 +3,7 @@ package com.scoresync.service;
 import com.scoresync.domain.PlayerSide;
 import com.scoresync.domain.ScoreboardTemplate;
 import com.scoresync.domain.VideoAsset;
+import com.scoresync.repository.ClipProjectRepository;
 import com.scoresync.repository.MatchProjectRepository;
 import com.scoresync.repository.VideoAssetRepository;
 import com.scoresync.repository.VideoSourceRepository;
@@ -72,10 +73,22 @@ class VideoLibraryServiceTest {
                   first_server TEXT NOT NULL DEFAULT 'A' CHECK (first_server IN ('A','B')),
                   created_at TEXT NOT NULL, updated_at TEXT NOT NULL
                 )""");
+        jdbc.execute("""
+                CREATE TABLE clip_project (
+                  id INTEGER PRIMARY KEY, name TEXT NOT NULL,
+                  video_asset_id INTEGER NOT NULL REFERENCES video_asset(id),
+                  large_step INTEGER NOT NULL DEFAULT 10 CHECK (large_step > 0),
+                  small_step INTEGER NOT NULL DEFAULT 5 CHECK (small_step > 0),
+                  source_file_size INTEGER NOT NULL, source_modified_at INTEGER NOT NULL,
+                  total_frames INTEGER NULL,
+                  frame_index_status TEXT NOT NULL DEFAULT 'PENDING'
+                    CHECK (frame_index_status IN ('PENDING','BUILDING','READY','FAILED')),
+                  created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+                )""");
         sourceRepo = new VideoSourceRepository(jdbc);
         assetRepo = new VideoAssetRepository(jdbc);
         projectRepo = new MatchProjectRepository(jdbc);
-        library = new VideoLibraryService(sourceRepo, assetRepo, projectRepo);
+        library = new VideoLibraryService(sourceRepo, assetRepo, projectRepo, new ClipProjectRepository(jdbc));
     }
 
     @Test
@@ -149,6 +162,25 @@ class VideoLibraryServiceTest {
         VideoAsset asset = library.scan(sourceId).get(0);
         projectRepo.insert("决赛", asset.id(), 60_000L, "甲", "乙", 2,
                 ScoreboardTemplate.CLASSIC, PlayerSide.A);
+
+        assertThatThrownBy(() -> library.removeAsset(asset.id()))
+                .isInstanceOf(VideoInUseException.class)
+                .hasMessageContaining("该视频正被 1 个项目使用，无法移除");
+
+        assertThat(assetRepo.findAll()).hasSize(1);
+    }
+
+    @Test
+    void removeAssetRejectsVideoStillUsedByClipProject(@TempDir Path tempDir) throws IOException {
+        Path sourceDir = tempDir.resolve("source_clip_in_use");
+        Files.createDirectory(sourceDir);
+        Path videoFile = sourceDir.resolve("match.mp4");
+        Files.createFile(videoFile);
+
+        long sourceId = library.addSource(sourceDir.toString()).id();
+        VideoAsset asset = library.scan(sourceId).get(0);
+        new ClipProjectRepository(jdbc).insert("剪辑", asset.id(), 10, 5,
+                Files.size(videoFile), Files.getLastModifiedTime(videoFile).toMillis());
 
         assertThatThrownBy(() -> library.removeAsset(asset.id()))
                 .isInstanceOf(VideoInUseException.class)

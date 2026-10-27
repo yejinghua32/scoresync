@@ -5,10 +5,12 @@ package com.scoresync.web;
  * 统一处理各类业务异常，返回标准化的 API 错误响应
  */
 
+import com.scoresync.support.ClipSourceChangedException;
 import com.scoresync.support.DomainNotFoundException;
 import com.scoresync.support.DomainValidationException;
 import com.scoresync.support.MediaUnavailableException;
 import com.scoresync.support.RenderJobConflictException;
+import com.scoresync.support.ToolUnavailableException;
 import com.scoresync.support.VideoInUseException;
 import com.scoresync.web.dto.ApiError;
 import org.springframework.http.HttpStatus;
@@ -67,6 +69,24 @@ public class ApiExceptionHandler {
     @ExceptionHandler(VideoInUseException.class)
     public ResponseEntity<ApiError> handleVideoInUse(VideoInUseException ex) {
         return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(new ApiError(ex.getCode(), ex.getMessage(), Collections.emptyMap()));
+    }
+
+    /**
+     * 处理剪辑源文件已变化的异常（409）
+     */
+    @ExceptionHandler(ClipSourceChangedException.class)
+    public ResponseEntity<ApiError> handleClipSourceChanged(ClipSourceChangedException ex) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(new ApiError(ex.getCode(), ex.getMessage(), Collections.emptyMap()));
+    }
+
+    /**
+     * 处理外部工具不可用的异常（400）
+     */
+    @ExceptionHandler(ToolUnavailableException.class)
+    public ResponseEntity<ApiError> handleToolUnavailable(ToolUnavailableException ex) {
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                 .body(new ApiError(ex.getCode(), ex.getMessage(), Collections.emptyMap()));
     }
 

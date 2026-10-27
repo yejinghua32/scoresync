@@ -17,3 +17,10 @@ scoresync:
     video-crf: 18
     video-preset: medium
     audio-bitrate: 192k
+  clip:
+    cache-dir: ${SCORESYNC_DATA_DIR:${user.home}/.scoresync}/clip-cache
+    work-dir: ${SCORESYNC_DATA_DIR:${user.home}/.scoresync}/clip-render-work
+    thumbnail-width: 320
+    max-cached-thumbnails: 600
+    max-concurrent-thumbnail-jobs: 2
+    thumbnail-seek-frames: 30

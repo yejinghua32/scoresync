@@ -28,19 +28,22 @@ public class SchemaMigrationRunner implements CommandLineRunner {
      */
     @Override
     public void run(String... args) {
-        boolean exists = jdbc.query("PRAGMA table_info(match_project)",
-                        (rs, rowNum) -> rs.getString("name")).stream()
-                .anyMatch("scoreboard_template"::equals);
-        if (!exists) {
-            jdbc.execute("ALTER TABLE match_project ADD COLUMN scoreboard_template "
-                    + "TEXT NOT NULL DEFAULT 'CLASSIC'");
-        }
-        boolean firstServerExists = jdbc.query("PRAGMA table_info(match_project)",
-                        (rs, rowNum) -> rs.getString("name")).stream()
-                .anyMatch("first_server"::equals);
-        if (!firstServerExists) {
-            jdbc.execute("ALTER TABLE match_project ADD COLUMN first_server "
-                    + "TEXT NOT NULL DEFAULT 'A'");
+        boolean projectTableExists = tableExists("match_project");
+        if (projectTableExists) {
+            boolean exists = jdbc.query("PRAGMA table_info(match_project)",
+                            (rs, rowNum) -> rs.getString("name")).stream()
+                    .anyMatch("scoreboard_template"::equals);
+            if (!exists) {
+                jdbc.execute("ALTER TABLE match_project ADD COLUMN scoreboard_template "
+                        + "TEXT NOT NULL DEFAULT 'CLASSIC'");
+            }
+            boolean firstServerExists = jdbc.query("PRAGMA table_info(match_project)",
+                            (rs, rowNum) -> rs.getString("name")).stream()
+                    .anyMatch("first_server"::equals);
+            if (!firstServerExists) {
+                jdbc.execute("ALTER TABLE match_project ADD COLUMN first_server "
+                        + "TEXT NOT NULL DEFAULT 'A'");
+            }
         }
         boolean settingsTableExists = tableExists("app_settings");
         if (!settingsTableExists) {
@@ -64,6 +67,46 @@ public class SchemaMigrationRunner implements CommandLineRunner {
                     + "opacity INTEGER NOT NULL DEFAULT 80, "
                     + "bg_color TEXT NOT NULL DEFAULT '#000000', "
                     + "text_color TEXT NOT NULL DEFAULT '#ffffff')");
+        }
+        boolean clipProjectTableExists = tableExists("clip_project");
+        if (!clipProjectTableExists) {
+            jdbc.execute("CREATE TABLE clip_project ("
+                    + "id INTEGER PRIMARY KEY, "
+                    + "name TEXT NOT NULL, "
+                    + "video_asset_id INTEGER NOT NULL REFERENCES video_asset(id), "
+                    + "large_step INTEGER NOT NULL DEFAULT 10 CHECK (large_step > 0), "
+                    + "small_step INTEGER NOT NULL DEFAULT 5 CHECK (small_step > 0), "
+                    + "source_file_size INTEGER NOT NULL, "
+                    + "source_modified_at INTEGER NOT NULL, "
+                    + "total_frames INTEGER NULL, "
+                    + "frame_index_status TEXT NOT NULL DEFAULT 'PENDING' "
+                    + "CHECK (frame_index_status IN ('PENDING','BUILDING','READY','FAILED')), "
+                    + "created_at TEXT NOT NULL, updated_at TEXT NOT NULL)");
+        }
+        boolean clipSegmentTableExists = tableExists("clip_segment");
+        if (!clipSegmentTableExists) {
+            jdbc.execute("CREATE TABLE clip_segment ("
+                    + "id INTEGER PRIMARY KEY, "
+                    + "project_id INTEGER NOT NULL REFERENCES clip_project(id) ON DELETE CASCADE, "
+                    + "segment_type TEXT NOT NULL CHECK (segment_type IN ('KEEP','DROP')), "
+                    + "start_frame INTEGER NOT NULL CHECK (start_frame >= 0), "
+                    + "end_frame INTEGER NOT NULL CHECK (end_frame > start_frame), "
+                    + "created_at TEXT NOT NULL, updated_at TEXT NOT NULL)");
+            jdbc.execute("CREATE INDEX IF NOT EXISTS idx_clip_segment_project "
+                    + "ON clip_segment(project_id, start_frame)");
+        }
+        boolean clipRenderJobTableExists = tableExists("clip_render_job");
+        if (!clipRenderJobTableExists) {
+            jdbc.execute("CREATE TABLE clip_render_job ("
+                    + "id INTEGER PRIMARY KEY, "
+                    + "project_id INTEGER NOT NULL REFERENCES clip_project(id), "
+                    + "status TEXT NOT NULL, "
+                    + "progress_percent INTEGER NOT NULL DEFAULT 0, "
+                    + "output_path TEXT NULL, "
+                    + "output_asset_id INTEGER NULL, "
+                    + "failure_message TEXT NULL, "
+                    + "created_at TEXT NOT NULL, started_at TEXT NULL, finished_at TEXT NULL)");
+            jdbc.execute("CREATE INDEX IF NOT EXISTS idx_clip_render_job_status ON clip_render_job(status)");
         }
     }
 
