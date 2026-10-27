@@ -1,6 +1,7 @@
 package com.scoresync.service.render;
 
 import com.scoresync.config.AppProperties;
+import com.scoresync.domain.ClipThumbnailFormat;
 import com.scoresync.support.ToolUnavailableException;
 import org.springframework.stereotype.Component;
 
@@ -14,7 +15,9 @@ import java.util.concurrent.TimeUnit;
 
 /**
  * 剪辑抽帧服务
- * 调用 ffmpeg 在指定时间点抽取画面并输出 PNG
+ * 调用 ffmpeg 在指定时间点抽取画面并输出图片
+ * <p>
+ * 输出格式由调用方指定，JPEG 使用有损编码，PNG 为无损编码
  * <p>
  * 该类只负责与 ffmpeg 交互，便于在测试中用假实现替换
  */
@@ -32,9 +35,10 @@ public class ClipFrameExtractor {
      *
      * @param source      源视频路径
      * @param seekSeconds 跳转时间（秒）
-     * @param output      输出 PNG 路径
+     * @param output      输出图片路径
+     * @param format      输出格式
      */
-    public void extract(Path source, double seekSeconds, Path output) {
+    public void extract(Path source, double seekSeconds, Path output, ClipThumbnailFormat format) {
         int width = appProperties.getClip().getThumbnailWidth();
         List<String> args = new ArrayList<>(List.of(
                 appProperties.getRender().getFfmpegPath(),
@@ -44,10 +48,9 @@ public class ClipFrameExtractor {
                 "-i", source.toString(),
                 "-an",
                 "-frames:v", "1",
-                "-vf", "scale=w='min(" + width + ",iw)':h=-2",
-                "-update", "1",
-                "-f", "image2",
-                output.toString()));
+                "-vf", "scale=w='min(" + width + ",iw)':h=-2"));
+        args.addAll(encoderArgs(format));
+        args.add(output.toString());
 
         ProcessBuilder builder = new ProcessBuilder(args);
         builder.redirectErrorStream(true);
@@ -81,5 +84,17 @@ public class ClipFrameExtractor {
         } catch (IOException e) {
             throw new IllegalStateException("抽取帧未生成有效图片", e);
         }
+    }
+
+    /**
+     * 按目标格式选择编码参数
+     * JPEG 走有损编码并固定质量，PNG 为无损编码
+     */
+    private List<String> encoderArgs(ClipThumbnailFormat format) {
+        if (format == ClipThumbnailFormat.PNG) {
+            return List.of("-update", "1", "-f", "image2");
+        }
+        int quality = Math.min(31, Math.max(2, appProperties.getClip().getThumbnailQuality()));
+        return List.of("-q:v", String.valueOf(quality), "-f", "mjpeg");
     }
 }

@@ -30,6 +30,11 @@ import java.util.List;
 @RequestMapping("/api/clip-projects")
 public class ClipProjectController {
 
+    /**
+     * 后台预取请求的优先级标记
+     */
+    private static final String BACKGROUND_PRIORITY = "background";
+
     private final ClipProjectService clipProjectService;
     private final ClipFrameIndexService frameIndexService;
     private final ClipThumbnailService thumbnailService;
@@ -129,17 +134,23 @@ public class ClipProjectController {
     }
 
     /**
-     * 读取指定帧的缩略图（PNG）
+     * 读取指定帧的缩略图
+     * <p>
+     * X-Thumbnail-Priority 标记为 background 时按后台预取处理，
+     * 预取不会占满抽帧名额，当前帧始终优先
      */
     @GetMapping("/{id}/frames/{frameNo}/thumbnail")
-    public ResponseEntity<byte[]> thumbnail(@PathVariable long id, @PathVariable int frameNo) {
+    public ResponseEntity<byte[]> thumbnail(@PathVariable long id,
+                                            @PathVariable int frameNo,
+                                            @RequestHeader(value = "X-Thumbnail-Priority", required = false) String priority) {
         var detail = clipProjectService.detail(id);
-        byte[] png = thumbnailService.thumbnail(detail.project(), frameNo);
+        boolean foreground = !BACKGROUND_PRIORITY.equalsIgnoreCase(priority);
+        byte[] data = thumbnailService.thumbnail(detail.project(), frameNo, foreground);
 
         HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.IMAGE_PNG);
+        headers.setContentType(MediaType.parseMediaType(thumbnailService.thumbnailFormat().mediaType()));
         headers.setCacheControl("no-store");
-        return ResponseEntity.ok().headers(headers).body(png);
+        return ResponseEntity.ok().headers(headers).body(data);
     }
 
     private List<ClipSegmentSpec> toSpecs(List<ClipSegmentRequest> requests) {

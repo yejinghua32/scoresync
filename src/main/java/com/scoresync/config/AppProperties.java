@@ -163,7 +163,9 @@ public class AppProperties {
         private String cacheDir = System.getProperty("user.home") + "/.scoresync/clip-cache";
         private String workDir = System.getProperty("user.home") + "/.scoresync/clip-render-work";
         private int thumbnailWidth = 320;
-        private int maxCachedThumbnails = 600;
+        private String thumbnailFormat = "JPEG";
+        private int thumbnailQuality = 6;
+        private long maxCachedThumbnailBytes = 256L * 1024 * 1024;
         private int maxConcurrentThumbnailJobs = 2;
         private int thumbnailSeekFrames = 30;
 
@@ -191,12 +193,37 @@ public class AppProperties {
             this.thumbnailWidth = thumbnailWidth;
         }
 
-        public int getMaxCachedThumbnails() {
-            return maxCachedThumbnails;
+        /**
+         * 缩略图格式名称，取值见 {@link com.scoresync.domain.ClipThumbnailFormat}
+         */
+        public String getThumbnailFormat() {
+            return thumbnailFormat;
         }
 
-        public void setMaxCachedThumbnails(int maxCachedThumbnails) {
-            this.maxCachedThumbnails = maxCachedThumbnails;
+        public void setThumbnailFormat(String thumbnailFormat) {
+            this.thumbnailFormat = thumbnailFormat;
+        }
+
+        /**
+         * 有损格式的质量，数值越小画质越好、体积越大
+         */
+        public int getThumbnailQuality() {
+            return thumbnailQuality;
+        }
+
+        public void setThumbnailQuality(int thumbnailQuality) {
+            this.thumbnailQuality = thumbnailQuality;
+        }
+
+        /**
+         * 所有源指纹目录共享的缩略图磁盘上限（字节）
+         */
+        public long getMaxCachedThumbnailBytes() {
+            return maxCachedThumbnailBytes;
+        }
+
+        public void setMaxCachedThumbnailBytes(long maxCachedThumbnailBytes) {
+            this.maxCachedThumbnailBytes = maxCachedThumbnailBytes;
         }
 
         public int getMaxConcurrentThumbnailJobs() {

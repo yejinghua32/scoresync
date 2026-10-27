@@ -3,6 +3,7 @@ package com.scoresync.web;
 import com.scoresync.config.AppProperties;
 import com.scoresync.domain.ClipFrameIndex;
 import com.scoresync.domain.ClipFrameIndexStatus;
+import com.scoresync.domain.ClipThumbnailFormat;
 import com.scoresync.repository.ClipProjectRepository;
 import com.scoresync.repository.ClipSegmentRepository;
 import com.scoresync.repository.VideoAssetRepository;
@@ -266,8 +267,19 @@ class ClipProjectApiIntegrationTest {
 
         mockMvc.perform(get("/api/clip-projects/{id}/frames/{frameNo}/thumbnail", id, 2))
                 .andExpect(status().isOk())
-                .andExpect(content().contentTypeCompatibleWith(MediaType.IMAGE_PNG))
+                .andExpect(content().contentTypeCompatibleWith(MediaType.IMAGE_JPEG))
                 .andExpect(result -> assertThat(result.getResponse().getContentAsByteArray()).isNotEmpty());
+    }
+
+    @Test
+    void thumbnailAcceptsBackgroundPriority() throws Exception {
+        long id = createProject();
+        awaitIndexReady(id);
+
+        mockMvc.perform(get("/api/clip-projects/{id}/frames/{frameNo}/thumbnail", id, 2)
+                        .header("X-Thumbnail-Priority", "background"))
+                .andExpect(status().isOk())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.IMAGE_JPEG));
     }
 
     @Test
@@ -333,10 +345,10 @@ class ClipProjectApiIntegrationTest {
         }
 
         @Override
-        public void extract(Path source, double seekSeconds, Path output) {
+        public void extract(Path source, double seekSeconds, Path output, ClipThumbnailFormat format) {
             try {
                 Files.createDirectories(output.getParent());
-                Files.writeString(output, "fake-png");
+                Files.writeString(output, "fake-thumbnail");
             } catch (IOException e) {
                 throw new IllegalStateException(e);
             }

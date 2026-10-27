@@ -13,10 +13,19 @@ import {api, escapeHtml} from './api.js';
  */
 
 const STRIP_RADIUS = 4;
-const STRIP_FETCH_LIMIT = 60;
 /** 相邻缩略图的最大水平间距（像素），实际间距按缩略图条宽度自适应 */
 const STRIP_MAX_OFFSET = 96;
 const STRIP_MIN_OFFSET = 20;
+/** 预取游标前方的小组帧数上限，只覆盖接下来的几步，不预先生成整段视频 */
+const PREFETCH_AHEAD_MAX = 12;
+/** 缩略图缓存保留的时间窗口（毫秒），以当前播放位置为中心 */
+const THUMBNAIL_WINDOW_MS = 5000;
+/** 缩略图缓存的字节上限，超出后按最近使用情况淘汰 */
+const THUMBNAIL_MAX_BYTES = 32 * 1024 * 1024;
+/** 同时进行的缩略图请求数上限 */
+const THUMBNAIL_MAX_CONCURRENT = 3;
+/** 播放中发起缩略图请求的最小间隔（毫秒），避免每次 timeupdate 都触发抽帧 */
+const PLAYBACK_THUMBNAIL_INTERVAL_MS = 250;
 
 let project = null;
 let segments = [];
@@ -28,8 +37,20 @@ let smallStep = 5;
 let cursor = 0;
 /** 暂选区间 {start, end, type}，未存档 */
 let pending = null;
-/** 缩略图缓存 frameNo -> dataURL */
+/** 缩略图缓存 frameNo -> {url, bytes, timeMs, lastUsed} */
 const thumbnails = new Map();
+/** 缩略图缓存占用的字节数 */
+let thumbnailBytes = 0;
+/** 正在进行的缩略图请求 frameNo -> {controller, priority, promise} */
+const thumbnailRequests = new Map();
+/** 等待发出的缩略图请求 */
+const thumbnailQueue = [];
+/** 正在进行的请求数 */
+let thumbnailActive = 0;
+/** 缓存代次，释放缓存后旧请求的结果不再写回 */
+let thumbnailEpoch = 0;
+/** 上一次发起缩略图请求的时间 */
+let lastThumbnailRequestAt = 0;
 /** 帧号 -> 源视频时间（毫秒） */
 let frameTimes = new Int32Array(0);
 /** 导出任务轮询句柄 */
@@ -64,6 +85,7 @@ function bindEvents() {
     video.addEventListener('timeupdate', onTimeUpdate);
     video.addEventListener('seeked', onSeeked);
     window.addEventListener('resize', () => renderTimeline());
+    window.addEventListener('beforeunload', releaseThumbnails);
     // 原生播放器控件拿到焦点后浏览器不再把按键事件派发到页面，
     // 剪辑快捷键会整体失灵；焦点回到页面后即可恢复。
     document.addEventListener('focusin', (event) => {
@@ -75,6 +97,7 @@ function bindEvents() {
 
 async function loadProject(projectId) {
     try {
+        releaseThumbnails();
         const data = await api(`/api/clip-projects/${projectId}`);
         project = data;
         segments = data.segments || [];
@@ -114,7 +137,7 @@ async function ensureFrameIndex(projectId) {
             await loadFrameTimes();
             updateFrameInfo();
             updateExportAvailability();
-            await refreshStrip();
+            refreshStrip();
             return;
         }
         if (status.status === 'FAILED') {
@@ -482,10 +505,20 @@ function updateCursorMarker() {
 }
 
 /**
+ * 刷新缩略图条
+ * 先重绘当前可见的帧，再按优先级安排还没取到的缩略图
+ */
+function refreshStrip() {
+    renderStrip();
+    pruneThumbnails();
+    scheduleThumbnails();
+}
+
+/**
  * 渲染重叠缩略图
  * 当前帧最大，前后帧依次变小并相互重叠
  */
-async function refreshStrip() {
+function renderStrip() {
     if (!totalFrames) {
         strip.innerHTML = '';
         return;
@@ -496,13 +529,12 @@ async function refreshStrip() {
     for (let frame = start; frame <= end; frame++) {
         frames.push(frame);
     }
-    const wanted = frames.filter(frame => !thumbnails.has(frame)).slice(0, STRIP_FETCH_LIMIT);
 
     // 以当前帧为中心排布，当前帧位于正中并压在相邻帧之上
     const center = cursor - start;
     const offset = stripOffset(frames, center);
     strip.innerHTML = frames.map((frame, index) => {
-        const cached = thumbnails.get(frame);
+        const cached = cachedThumbnail(frame);
         const distance = Math.abs(frame - cursor);
         const scale = Math.max(0.5, 1 - distance * 0.1);
         const shift = (index - center) * offset;
@@ -514,14 +546,284 @@ async function refreshStrip() {
                      data-frame="${frame}"
                      style="left:calc(50% + ${shift}px);transform:translateX(-50%) scale(${scale});z-index:${zIndex}">${image}</div>`;
     }).join('');
+}
 
+/**
+ * 当前关注的帧
+ * 可见邻帧加上游标前方的一小组预取帧
+ */
+function wantedFrames() {
+    const frames = new Set();
+    if (!totalFrames) {
+        return frames;
+    }
+    for (let frame = Math.max(0, cursor - STRIP_RADIUS); frame <= Math.min(totalFrames - 1, cursor + STRIP_RADIUS); frame++) {
+        frames.add(frame);
+    }
+    for (let frame = cursor + 1; frame <= Math.min(totalFrames - 1, cursor + prefetchAhead()); frame++) {
+        frames.add(frame);
+    }
+    return frames;
+}
+
+/**
+ * 预取帧数
+ * 覆盖下一步移动之后可见的窗口，使连续步进不需要新的抽帧
+ */
+function prefetchAhead() {
+    return Math.min(PREFETCH_AHEAD_MAX, STRIP_RADIUS + Math.max(1, smallStep));
+}
+
+/**
+ * 请求优先级，数值越小越先发出
+ */
+function thumbnailPriority(frame) {
+    if (frame === cursor) {
+        return 0;
+    }
+    return Math.abs(frame - cursor) <= STRIP_RADIUS ? 1 : 2;
+}
+
+/**
+ * 安排缩略图加载
+ * 当前帧优先，其次可见邻帧，最后是游标前方的预取帧
+ */
+function scheduleThumbnails() {
+    if (!totalFrames || !project) {
+        return;
+    }
+    let wanted = wantedFrames();
+    if (!video.paused) {
+        // 播放中只按当前帧请求并限制频率，避免每次 timeupdate 都触发抽帧
+        const now = Date.now();
+        if (now - lastThumbnailRequestAt < PLAYBACK_THUMBNAIL_INTERVAL_MS) {
+            return;
+        }
+        lastThumbnailRequestAt = now;
+        wanted = new Set([cursor]);
+    }
+
+    // 放弃已经不需要的请求，旧位置的预取不占用新位置的名额
+    cancelStaleRequests(wanted);
+
+    // 丢弃已经不需要的排队请求，队列不会随播放持续增长
+    for (let i = thumbnailQueue.length - 1; i >= 0; i--) {
+        if (!wanted.has(thumbnailQueue[i])) {
+            thumbnailQueue.splice(i, 1);
+        }
+    }
+
+    const pending = [];
     for (const frame of wanted) {
-        await loadThumbnail(frame);
+        if (thumbnails.has(frame) || thumbnailRequests.has(frame)) {
+            continue;
+        }
+        if (thumbnailQueue.includes(frame)) {
+            continue;
+        }
+        pending.push(frame);
     }
-    // 缩略图就位后重绘一次
-    if (wanted.length) {
-        refreshStrip();
+    pending.sort((a, b) => thumbnailPriority(a) - thumbnailPriority(b)
+        || Math.abs(a - cursor) - Math.abs(b - cursor));
+    for (const frame of pending) {
+        thumbnailQueue.push(frame);
     }
+    pumpThumbnailQueue();
+}
+
+/**
+ * 取消已经不需要的请求
+ * 游标移动后，旧位置的请求立即让出名额给新的当前帧
+ */
+function cancelStaleRequests(wanted) {
+    for (const [frame, entry] of Array.from(thumbnailRequests)) {
+        if (wanted.has(frame)) {
+            continue;
+        }
+        entry.controller.abort();
+    }
+}
+
+/**
+ * 发出排队中的请求
+ * 优先级在发出时按当前游标重新计算，游标移动后当前帧立刻排在最前
+ */
+function pumpThumbnailQueue() {
+    while (thumbnailActive < THUMBNAIL_MAX_CONCURRENT && thumbnailQueue.length) {
+        let best = 0;
+        for (let i = 1; i < thumbnailQueue.length; i++) {
+            if (thumbnailPriority(thumbnailQueue[i]) < thumbnailPriority(thumbnailQueue[best])) {
+                best = i;
+            }
+        }
+        const frame = thumbnailQueue.splice(best, 1)[0];
+        startThumbnailRequest(frame);
+    }
+}
+
+/**
+ * 加载一帧缩略图
+ * 同一帧只保留一个进行中的请求，失败后可以重试
+ */
+function startThumbnailRequest(frame) {
+    const priority = frame === cursor ? 'foreground' : 'background';
+    const controller = new AbortController();
+    const epoch = thumbnailEpoch;
+    thumbnailActive++;
+    const entry = {controller, priority};
+    const request = (async () => {
+        try {
+            const response = await fetch(`/api/clip-projects/${project.id}/frames/${frame}/thumbnail`, {
+                headers: {'X-Thumbnail-Priority': priority},
+                signal: controller.signal
+            });
+            if (!response.ok) {
+                return null;
+            }
+            return await response.blob();
+        } catch (e) {
+            // 缩略图缺失或请求被取消，不影响主要流程
+            return null;
+        }
+    })();
+    entry.promise = request;
+    thumbnailRequests.set(frame, entry);
+    request.then(blob => {
+        if (thumbnailRequests.get(frame) === entry) {
+            thumbnailRequests.delete(frame);
+        }
+        thumbnailActive--;
+        if (epoch === thumbnailEpoch && blob && blob.size > 0) {
+            storeThumbnail(frame, blob);
+            applyThumbnail(frame);
+        }
+        pumpThumbnailQueue();
+    });
+}
+
+/**
+ * 取缓存中的缩略图地址，未命中返回 null
+ */
+function cachedThumbnail(frame) {
+    const entry = thumbnails.get(frame);
+    if (!entry) {
+        return null;
+    }
+    entry.lastUsed = Date.now();
+    return entry.url;
+}
+
+/**
+ * 存入缩略图并淘汰超出预算的旧图
+ */
+function storeThumbnail(frame, blob) {
+    const previous = thumbnails.get(frame);
+    if (previous) {
+        thumbnailBytes -= previous.bytes;
+        URL.revokeObjectURL(previous.url);
+    }
+    const entry = {
+        url: URL.createObjectURL(blob),
+        bytes: blob.size,
+        timeMs: frameTimeMs(frame),
+        lastUsed: Date.now()
+    };
+    thumbnails.set(frame, entry);
+    thumbnailBytes += entry.bytes;
+    pruneThumbnails();
+}
+
+/**
+ * 缩略图就位后只更新对应的那一张，不重绘整条缩略图条
+ */
+function applyThumbnail(frame) {
+    const item = strip.querySelector(`.clip-strip-item[data-frame="${frame}"]`);
+    if (!item) {
+        return;
+    }
+    const url = cachedThumbnail(frame);
+    if (!url) {
+        return;
+    }
+    const image = item.querySelector('img');
+    if (image && image.getAttribute('src') === url) {
+        return;
+    }
+    item.innerHTML = `<img src="${url}" alt="第${frame}帧">`;
+}
+
+/**
+ * 淘汰缩略图
+ * 先按当前播放位置附近的时间窗口淘汰，再按字节上限按最近使用情况淘汰
+ */
+function pruneThumbnails() {
+    if (!thumbnails.size) {
+        return;
+    }
+    const pinned = pinnedFrames();
+    const currentMs = frameTimeMs(cursor);
+    for (const [frame, entry] of Array.from(thumbnails)) {
+        if (pinned.has(frame)) {
+            continue;
+        }
+        // 窗口按帧在源视频中的时间计算，可变帧率视频同样适用
+        if (frameTimes.length && Math.abs(entry.timeMs - currentMs) > THUMBNAIL_WINDOW_MS) {
+            dropThumbnail(frame);
+        }
+    }
+    while (thumbnailBytes > THUMBNAIL_MAX_BYTES) {
+        let oldest = null;
+        for (const [frame, entry] of thumbnails) {
+            if (pinned.has(frame)) {
+                continue;
+            }
+            if (!oldest || entry.lastUsed < oldest.entry.lastUsed) {
+                oldest = {frame, entry};
+            }
+        }
+        if (!oldest) {
+            break;
+        }
+        dropThumbnail(oldest.frame);
+    }
+}
+
+/**
+ * 当前显示中的帧不参与淘汰
+ */
+function pinnedFrames() {
+    const pinned = new Set([cursor]);
+    for (let frame = Math.max(0, cursor - STRIP_RADIUS); frame <= Math.min(totalFrames - 1, cursor + STRIP_RADIUS); frame++) {
+        pinned.add(frame);
+    }
+    return pinned;
+}
+
+/**
+ * 删除缓存条目并释放地址
+ */
+function dropThumbnail(frame) {
+    const entry = thumbnails.get(frame);
+    if (!entry) {
+        return;
+    }
+    thumbnails.delete(frame);
+    thumbnailBytes -= entry.bytes;
+    URL.revokeObjectURL(entry.url);
+}
+
+/**
+ * 释放全部缩略图
+ * 切换项目或离开页面时调用
+ */
+function releaseThumbnails() {
+    thumbnailEpoch++;
+    for (const [, entry] of thumbnails) {
+        URL.revokeObjectURL(entry.url);
+    }
+    thumbnails.clear();
+    thumbnailBytes = 0;
+    thumbnailQueue.length = 0;
 }
 
 /**
@@ -560,23 +862,6 @@ function stripItemWidth() {
     }
     const current = strip.querySelector('.clip-strip-item.current img');
     return current ? current.getBoundingClientRect().width : 0;
-}
-
-async function loadThumbnail(frame) {
-    try {
-        const response = await fetch(`/api/clip-projects/${project.id}/frames/${frame}/thumbnail`);
-        if (!response.ok) {
-            return;
-        }
-        const blob = await response.blob();
-        const reader = new FileReader();
-        reader.onload = () => {
-            thumbnails.set(frame, reader.result);
-        };
-        reader.readAsDataURL(blob);
-    } catch (e) {
-        // 缩略图缺失不影响主要流程
-    }
 }
 
 /**
