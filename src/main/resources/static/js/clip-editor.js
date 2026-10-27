@@ -14,6 +14,9 @@ import {api, escapeHtml} from './api.js';
 
 const STRIP_RADIUS = 4;
 const STRIP_FETCH_LIMIT = 60;
+/** 相邻缩略图的最大水平间距（像素），实际间距按缩略图条宽度自适应 */
+const STRIP_MAX_OFFSET = 96;
+const STRIP_MIN_OFFSET = 20;
 
 let project = null;
 let segments = [];
@@ -36,8 +39,6 @@ let seekRestoreFrame = null;
 
 const video = document.getElementById('clip-video');
 const timeline = document.getElementById('clip-timeline');
-const keepBand = document.getElementById('clip-keep-band');
-const dropBand = document.getElementById('clip-drop-band');
 const strip = document.getElementById('clip-strip');
 const cursorMarker = document.getElementById('clip-timeline-cursor');
 
@@ -404,32 +405,11 @@ function keepSegments() {
  * 渲染已存档片段
  */
 function renderSegments() {
-    renderBand(keepBand, segments.filter(segment => segment.type === 'KEEP'));
-    renderBand(dropBand, segments.filter(segment => segment.type === 'DROP'));
     renderSegmentList();
 
     const kept = keepSegments().reduce((sum, segment) => sum + (segment.endFrame - segment.startFrame), 0);
     document.getElementById('clip-keep-summary').textContent =
         totalFrames > 0 ? `保留 ${kept} / ${totalFrames} 帧` : '';
-}
-
-/**
- * 片段条带
- * 保留区与舍弃区各画自己的片段，未标记帧保持空白，
- * 不会因为缺少舍弃片段而被误显示为舍弃
- */
-function renderBand(element, list) {
-    if (!totalFrames) {
-        element.innerHTML = '';
-        return;
-    }
-    element.innerHTML = list.map(segment => {
-        const left = (segment.startFrame / totalFrames) * 100;
-        const width = ((segment.endFrame - segment.startFrame) / totalFrames) * 100;
-        return `<div class="clip-segment-bar ${segment.type === 'KEEP' ? 'keep' : 'drop'}"
-                     style="left:${left}%;width:${width}%"
-                     title="${segment.type} ${segment.startFrame}-${segment.endFrame}"></div>`;
-    }).join('');
 }
 
 /**
@@ -493,18 +473,19 @@ async function refreshStrip() {
 
     // 以当前帧为中心排布，当前帧位于正中并压在相邻帧之上
     const center = cursor - start;
+    const offset = stripOffset(frames, center);
     strip.innerHTML = frames.map((frame, index) => {
         const cached = thumbnails.get(frame);
         const distance = Math.abs(frame - cursor);
         const scale = Math.max(0.5, 1 - distance * 0.1);
-        const offset = (index - center) * 46;
+        const shift = (index - center) * offset;
         const zIndex = 20 - distance;
         const image = cached
             ? `<img src="${cached}" alt="第${frame}帧">`
             : `<div class="clip-strip-placeholder"></div>`;
         return `<div class="clip-strip-item ${frame === cursor ? 'current' : ''}"
                      data-frame="${frame}"
-                     style="left:calc(50% + ${offset}px);transform:translateX(-50%) scale(${scale});z-index:${zIndex}">${image}</div>`;
+                     style="left:calc(50% + ${shift}px);transform:translateX(-50%) scale(${scale});z-index:${zIndex}">${image}</div>`;
     }).join('');
 
     for (const frame of wanted) {
@@ -514,6 +495,44 @@ async function refreshStrip() {
     if (wanted.length) {
         refreshStrip();
     }
+}
+
+/**
+ * 计算相邻缩略图的水平间距
+ * 缩略图放大后单张宽度较大，间距按缩略图条的实际宽度收紧，
+ * 保证最外侧的缩略图不会被裁掉
+ */
+function stripOffset(frames, center) {
+    const stripWidth = strip.getBoundingClientRect().width;
+    const itemWidth = stripItemWidth();
+    if (stripWidth <= 0 || itemWidth <= 0) {
+        return STRIP_MAX_OFFSET;
+    }
+    // 当前帧两侧最远的缩略图到中心的距离（两侧可能不对称）
+    const reach = Math.max(...frames.map((frame, index) => Math.abs(index - center)));
+    if (reach === 0) {
+        return STRIP_MAX_OFFSET;
+    }
+    // 最外侧缩略图缩放后约占位宽的六成，其半宽决定中心到边缘的可用空间
+    const scale = Math.max(0.5, 1 - reach * 0.1);
+    const edgeHalfWidth = itemWidth * scale / 2;
+    const available = stripWidth / 2 - edgeHalfWidth;
+    return Math.max(STRIP_MIN_OFFSET, Math.min(STRIP_MAX_OFFSET, available / reach));
+}
+
+/**
+ * 单张缩略图未缩放时的宽度
+ * 缩略图按源视频比例缩放，因此用视频原始比例推算；
+ * 视频信息尚未就绪时退回实测值
+ */
+function stripItemWidth() {
+    const cssHeight = parseFloat(getComputedStyle(document.documentElement)
+        .getPropertyValue('--clip-strip-item-height')) || 240;
+    if (video.videoWidth > 0 && video.videoHeight > 0) {
+        return cssHeight * (video.videoWidth / video.videoHeight);
+    }
+    const current = strip.querySelector('.clip-strip-item.current img');
+    return current ? current.getBoundingClientRect().width : 0;
 }
 
 async function loadThumbnail(frame) {

@@ -7,6 +7,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.web.servlet.MockMvc;
 
 import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.not;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -38,9 +39,10 @@ class StaticPageIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(content().string(containsString("id=\"clip-video\"")))
                 .andExpect(content().string(containsString("id=\"clip-strip\"")))
-                .andExpect(content().string(containsString("id=\"clip-keep-band\"")))
                 .andExpect(content().string(containsString("id=\"clip-timeline\"")))
-                .andExpect(content().string(containsString("id=\"clip-drop-band\"")))
+                // 保留与舍弃区间统一由时间轴表示，不再单独渲染条带
+                .andExpect(content().string(not(containsString("id=\"clip-keep-band\""))))
+                .andExpect(content().string(not(containsString("id=\"clip-drop-band\""))))
                 .andExpect(content().string(containsString("id=\"clip-large-step\"")))
                 .andExpect(content().string(containsString("id=\"clip-small-step\"")));
     }

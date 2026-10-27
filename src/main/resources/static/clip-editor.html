@@ -33,6 +33,30 @@
 <div id="clip-index-state" class="clip-index-state"></div>
 
 <div class="clip-main">
+    <section class="clip-strip-section">
+        <div class="clip-section-title">当前帧</div>
+        <div id="clip-strip" class="clip-strip"></div>
+    </section>
+
+    <section class="clip-timeline-section">
+        <div class="clip-section-title">
+            时间轴
+            <span class="clip-section-hint">点击跳到任意源帧</span>
+        </div>
+        <div class="clip-timeline-wrap">
+            <div id="clip-timeline" class="clip-timeline"></div>
+            <div id="clip-timeline-cursor" class="clip-timeline-cursor"></div>
+        </div>
+    </section>
+
+    <section class="clip-segments-section">
+        <div class="clip-section-title">
+            已存档片段
+            <span id="clip-keep-summary" class="clip-section-hint"></span>
+        </div>
+        <div id="clip-segment-list" class="clip-segment-list"></div>
+    </section>
+
     <section class="clip-stage-section">
         <div class="clip-stage">
             <video id="clip-video" controls preload="metadata"></video>
@@ -52,40 +76,6 @@
         <p class="clip-preview-note">
             预览按已存档的保留片段跳播，交界处可能与导出结果略有差异，导出以实际解码帧为准。
         </p>
-    </section>
-
-    <section class="clip-strip-section">
-        <div class="clip-section-title">当前帧</div>
-        <div id="clip-strip" class="clip-strip"></div>
-    </section>
-
-    <section class="clip-band-section">
-        <div class="clip-section-title">保留帧</div>
-        <div id="clip-keep-band" class="clip-band clip-band-keep"></div>
-    </section>
-
-    <section class="clip-timeline-section">
-        <div class="clip-section-title">
-            时间轴
-            <span class="clip-section-hint">点击跳到任意源帧</span>
-        </div>
-        <div class="clip-timeline-wrap">
-            <div id="clip-timeline" class="clip-timeline"></div>
-            <div id="clip-timeline-cursor" class="clip-timeline-cursor"></div>
-        </div>
-    </section>
-
-    <section class="clip-band-section">
-        <div class="clip-section-title">舍弃帧</div>
-        <div id="clip-drop-band" class="clip-band clip-band-drop"></div>
-    </section>
-
-    <section class="clip-segments-section">
-        <div class="clip-section-title">
-            已存档片段
-            <span id="clip-keep-summary" class="clip-section-hint"></span>
-        </div>
-        <div id="clip-segment-list" class="clip-segment-list"></div>
     </section>
 </div>
 
