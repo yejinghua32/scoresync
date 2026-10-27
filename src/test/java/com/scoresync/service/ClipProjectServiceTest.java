@@ -7,6 +7,7 @@ import com.scoresync.domain.ClipSegmentSpec;
 import com.scoresync.domain.ClipSegmentType;
 import com.scoresync.repository.ClipProjectRepository;
 import com.scoresync.repository.ClipSegmentRepository;
+import com.scoresync.support.DomainNotFoundException;
 import com.scoresync.support.DomainValidationException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -298,6 +299,46 @@ class ClipProjectServiceTest {
 
         assertThat(segments.findByProjectId(id)).isEmpty();
         assertThat(projects.count()).isZero();
+    }
+
+    @Test
+    void deletesSingleSegmentAndKeepsOthers() {
+        long id = readyProject(300);
+        service.commitSegments(id, List.of(new ClipSegmentSpec(ClipSegmentType.KEEP, 0, 10)));
+        service.commitSegments(id, List.of(new ClipSegmentSpec(ClipSegmentType.DROP, 20, 30)));
+        List<ClipSegment> stored = segments.findByProjectId(id);
+        long dropId = stored.stream()
+                .filter(segment -> segment.type() == ClipSegmentType.DROP)
+                .findFirst()
+                .orElseThrow()
+                .id();
+
+        service.deleteSegment(id, dropId);
+
+        List<ClipSegment> remaining = segments.findByProjectId(id);
+        assertThat(remaining).hasSize(1);
+        assertThat(remaining.get(0).type()).isEqualTo(ClipSegmentType.KEEP);
+        assertThat(remaining.get(0).startFrame()).isZero();
+    }
+
+    @Test
+    void rejectsDeletingSegmentOfAnotherProject() {
+        long first = readyProject(300);
+        long second = readyProject(300);
+        service.commitSegments(first, List.of(new ClipSegmentSpec(ClipSegmentType.KEEP, 0, 10)));
+        long segmentId = segments.findByProjectId(first).get(0).id();
+
+        assertThatThrownBy(() -> service.deleteSegment(second, segmentId))
+                .isInstanceOf(DomainNotFoundException.class);
+        assertThat(segments.findByProjectId(first)).hasSize(1);
+    }
+
+    @Test
+    void rejectsDeletingUnknownSegment() {
+        long id = readyProject(300);
+
+        assertThatThrownBy(() -> service.deleteSegment(id, 999L))
+                .isInstanceOf(DomainNotFoundException.class);
     }
 
     @Test

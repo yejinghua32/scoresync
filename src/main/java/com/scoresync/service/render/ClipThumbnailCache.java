@@ -12,6 +12,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
@@ -22,7 +23,7 @@ import java.util.concurrent.atomic.AtomicLong;
  * 所有源指纹目录共享同一个字节上限，容量超限时按最近使用时间淘汰最旧的缩略图。
  * 使用时间在命中时也会刷新，因此重启后仍能保持淘汰顺序，且不需要每次写入都全量扫描磁盘。
  * <p>
- * 缓存按版本分目录存放，版本号包含编码参数，格式或画质变化时旧目录会被回收，
+ * 缓存按版本与档位分目录存放，格式、尺寸或画质变化时旧目录会被回收，
  * 不会被当成新参数的结果。
  */
 class ClipThumbnailCache {
@@ -37,14 +38,16 @@ class ClipThumbnailCache {
 
     private final Path root;
     private final String version;
+    private final Set<String> specKeys;
     private final long maxBytes;
     private final Map<Path, Entry> entries = new ConcurrentHashMap<>();
     private final AtomicLong totalBytes = new AtomicLong();
     private final AtomicBoolean indexed = new AtomicBoolean(false);
 
-    ClipThumbnailCache(Path cacheDir, long maxBytes, String version) {
+    ClipThumbnailCache(Path cacheDir, long maxBytes, String version, Set<String> specKeys) {
         this.root = cacheDir.resolve("thumbs");
         this.version = version;
+        this.specKeys = Set.copyOf(specKeys);
         this.maxBytes = Math.max(0, maxBytes);
     }
 
@@ -52,8 +55,8 @@ class ClipThumbnailCache {
      * 缓存文件路径
      * 键包含源文件指纹，源文件变化后旧缓存自然失效
      */
-    Path fileFor(String fingerprint, int frameNo, String extension) {
-        return root.resolve(version).resolve(fingerprint).resolve(frameNo + "." + extension);
+    Path fileFor(String specKey, String fingerprint, int frameNo, String extension) {
+        return root.resolve(version).resolve(specKey).resolve(fingerprint).resolve(frameNo + "." + extension);
     }
 
     /**
@@ -137,22 +140,33 @@ class ClipThumbnailCache {
     }
 
     /**
-     * 回收非当前版本的缓存目录
+     * 回收旧版本目录与失效档位目录
      */
     void cleanLegacyVersions() {
-        if (!Files.isDirectory(root)) {
-            return;
-        }
-        try (var stream = Files.list(root)) {
-            for (Path child : stream.toList()) {
-                if (child.getFileName().toString().equals(version)) {
-                    continue;
+        if (Files.isDirectory(root)) {
+            try (var stream = Files.list(root)) {
+                for (Path child : stream.toList()) {
+                    if (!child.getFileName().toString().equals(version)) {
+                        deleteRecursively(child);
+                        log.info("回收旧版缩略图缓存: {}", child);
+                    }
                 }
-                deleteRecursively(child);
-                log.info("回收旧版缩略图缓存: {}", child);
+            } catch (IOException e) {
+                log.debug("回收旧版缩略图缓存失败: {}", e.getMessage());
             }
-        } catch (IOException e) {
-            log.debug("回收旧版缩略图缓存失败: {}", e.getMessage());
+        }
+        Path versionRoot = root.resolve(version);
+        if (Files.isDirectory(versionRoot)) {
+            try (var stream = Files.list(versionRoot)) {
+                for (Path child : stream.toList()) {
+                    if (!specKeys.contains(child.getFileName().toString())) {
+                        deleteRecursively(child);
+                        log.info("回收失效档位的缩略图缓存: {}", child);
+                    }
+                }
+            } catch (IOException e) {
+                log.debug("回收失效档位的缩略图缓存失败: {}", e.getMessage());
+            }
         }
     }
 
@@ -210,10 +224,21 @@ class ClipThumbnailCache {
             return;
         }
         try (var stream = Files.list(versionRoot)) {
-            for (Path directory : stream.toList()) {
-                try (var children = Files.list(directory)) {
-                    if (children.findAny().isEmpty()) {
-                        Files.deleteIfExists(directory);
+            for (Path specDir : stream.toList()) {
+                if (!Files.isDirectory(specDir)) {
+                    continue;
+                }
+                try (var children = Files.list(specDir)) {
+                    for (Path directory : children.toList()) {
+                        if (!Files.isDirectory(directory)) {
+                            continue;
+                        }
+                        try (var files = Files.list(directory)) {
+                            if (files.findAny().isEmpty()) {
+                                Files.deleteIfExists(directory);
+                            }
+                        } catch (IOException ignored) {
+                        }
                     }
                 } catch (IOException ignored) {
                 }

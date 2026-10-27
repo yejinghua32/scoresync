@@ -14,6 +14,10 @@ import {api, escapeHtml} from './api.js';
 
 /** 左右两侧显示的帧偏移：当前帧的前/后第 3 帧 */
 const STRIP_SIDE_OFFSET = 3;
+/** 小尺寸缩略图：前后邻帧使用，传输量小 */
+const SIZE_SMALL = 'small';
+/** 大尺寸缩略图：当前帧使用，画面更清晰 */
+const SIZE_LARGE = 'large';
 /** 预取游标前方的小组帧数上限，只覆盖接下来的几步，不预先生成整段视频 */
 const PREFETCH_AHEAD_MAX = 12;
 /** 缩略图缓存保留的时间窗口（毫秒），以当前播放位置为中心 */
@@ -35,11 +39,11 @@ let smallStep = 5;
 let cursor = 0;
 /** 暂选区间 {start, end, type}，未存档 */
 let pending = null;
-/** 缩略图缓存 frameNo -> {url, bytes, timeMs, lastUsed} */
+/** 缩略图缓存 "帧号:尺寸" -> {url, bytes, timeMs, lastUsed} */
 const thumbnails = new Map();
 /** 缩略图缓存占用的字节数 */
 let thumbnailBytes = 0;
-/** 正在进行的缩略图请求 frameNo -> {controller, priority, promise} */
+/** 正在进行的缩略图请求 "帧号:尺寸" -> {controller, priority, promise} */
 const thumbnailRequests = new Map();
 /** 等待发出的缩略图请求 */
 const thumbnailQueue = [];
@@ -433,6 +437,11 @@ function onTimelineClick(e) {
  * 片段是半开区间 [startFrame, endFrame)，最后一帧为 endFrame - 1
  */
 function onSegmentClick(e) {
+    const removeButton = e.target.closest('.clip-segment-delete');
+    if (removeButton) {
+        deleteSegment(Number(removeButton.dataset.id));
+        return;
+    }
     const item = e.target.closest('.clip-segment-item');
     if (!item) {
         return;
@@ -445,6 +454,35 @@ function onSegmentClick(e) {
     pending = null;
     moveCursorTo(Math.max(start, end - 1));
     renderPending();
+}
+
+/**
+ * 删除一个已存档片段
+ * 该区间的帧回到未标记状态
+ */
+async function deleteSegment(segmentId) {
+    if (!project || !Number.isFinite(segmentId)) {
+        return;
+    }
+    const segment = segments.find(item => item.id === segmentId);
+    if (!segment) {
+        return;
+    }
+    if (!confirm(`确定删除片段「${segment.startFrame} - ${segment.endFrame}」吗？该区间的帧会回到未标记状态。`)) {
+        return;
+    }
+    try {
+        const updated = await api(`/api/clip-projects/${project.id}/segments/${segmentId}`, {method: 'DELETE'});
+        segments = updated.segments || [];
+        project = {...project, segments};
+        renderSegments();
+        renderTimeline();
+        updateFrameInfo();
+        updateExportAvailability();
+        showToast('片段已删除', 'success');
+    } catch (e) {
+        showToast(e.message, 'error');
+    }
 }
 
 /**
@@ -566,10 +604,12 @@ function renderSegmentList() {
     }
     list.innerHTML = segments.map(segment => `
     <div class="clip-segment-item ${segment.type === 'KEEP' ? 'keep' : 'drop'}"
-         data-start="${segment.startFrame}" data-end="${segment.endFrame}" title="点击定位到该片段的最后一帧">
+         data-id="${segment.id}" data-start="${segment.startFrame}" data-end="${segment.endFrame}"
+         title="点击定位到该片段的最后一帧">
       <span class="clip-segment-type">${segment.type === 'KEEP' ? '保留' : '舍弃'}</span>
       <span class="clip-segment-range">${segment.startFrame} - ${segment.endFrame}</span>
       <span class="clip-segment-count">${segment.endFrame - segment.startFrame} 帧 / ${formatDuration(frameRangeMs(segment.startFrame, segment.endFrame))}</span>
+      <button class="clip-segment-delete" data-id="${segment.id}" title="删除该片段">删除</button>
     </div>`).join('');
 }
 
@@ -610,7 +650,7 @@ function renderStrip() {
         if (frame < 0 || frame > totalFrames - 1) {
             return `<div class="clip-strip-item empty" style="width:${width}px;height:${height}px"></div>`;
         }
-        const cached = cachedThumbnail(frame);
+        const cached = bestThumbnail(frame);
         const image = cached
             ? `<img src="${cached}" alt="第${frame}帧">`
             : `<div class="clip-strip-placeholder"></div>`;
@@ -621,19 +661,26 @@ function renderStrip() {
 }
 
 /**
- * 当前关注的帧
- * 三张可见帧加上游标前方的一小组预取帧
+ * 当前关注的帧与对应尺寸
+ * 三张可见帧加上游标前方的一小组预取帧；
+ * 当前帧与下一步会到达的帧用大尺寸，画面更清晰
  */
 function wantedFrames() {
-    const frames = new Set();
+    const frames = new Map();
     if (!totalFrames) {
         return frames;
     }
     for (let frame = Math.max(0, cursor - STRIP_SIDE_OFFSET); frame <= Math.min(totalFrames - 1, cursor + STRIP_SIDE_OFFSET); frame++) {
-        frames.add(frame);
+        frames.set(frame, SIZE_SMALL);
     }
     for (let frame = cursor + 1; frame <= Math.min(totalFrames - 1, cursor + prefetchAhead()); frame++) {
-        frames.add(frame);
+        frames.set(frame, SIZE_SMALL);
+    }
+    frames.set(cursor, SIZE_LARGE);
+    const nextFrame = Math.min(totalFrames - 1, cursor + Math.max(1, smallStep));
+    if (nextFrame > cursor) {
+        // 下一步会到达的帧提前按大尺寸取好，步进时无需再抽帧
+        frames.set(nextFrame, SIZE_LARGE);
     }
     return frames;
 }
@@ -664,7 +711,7 @@ function scheduleThumbnails() {
     if (!totalFrames || !project) {
         return;
     }
-    let wanted = wantedFrames();
+    const wanted = wantedFrames();
     if (!video.paused) {
         // 播放中只按当前帧请求并限制频率，避免每次 timeupdate 都触发抽帧
         const now = Date.now();
@@ -672,33 +719,36 @@ function scheduleThumbnails() {
             return;
         }
         lastThumbnailRequestAt = now;
-        wanted = new Set([cursor]);
+        wanted.clear();
+        wanted.set(cursor, SIZE_LARGE);
     }
+    const wantedKeys = new Set(Array.from(wanted, ([frame, size]) => thumbnailKey(frame, size)));
 
     // 放弃已经不需要的请求，旧位置的预取不占用新位置的名额
-    cancelStaleRequests(wanted);
+    cancelStaleRequests(wantedKeys);
 
     // 丢弃已经不需要的排队请求，队列不会随播放持续增长
     for (let i = thumbnailQueue.length - 1; i >= 0; i--) {
-        if (!wanted.has(thumbnailQueue[i])) {
+        if (!wantedKeys.has(thumbnailQueue[i].key)) {
             thumbnailQueue.splice(i, 1);
         }
     }
 
     const pending = [];
-    for (const frame of wanted) {
-        if (thumbnails.has(frame) || thumbnailRequests.has(frame)) {
+    for (const [frame, size] of wanted) {
+        const key = thumbnailKey(frame, size);
+        if (thumbnails.has(key) || thumbnailRequests.has(key)) {
             continue;
         }
-        if (thumbnailQueue.includes(frame)) {
+        if (thumbnailQueue.some(item => item.key === key)) {
             continue;
         }
-        pending.push(frame);
+        pending.push({frame, size, key});
     }
-    pending.sort((a, b) => thumbnailPriority(a) - thumbnailPriority(b)
-        || Math.abs(a - cursor) - Math.abs(b - cursor));
-    for (const frame of pending) {
-        thumbnailQueue.push(frame);
+    pending.sort((a, b) => thumbnailPriority(a.frame) - thumbnailPriority(b.frame)
+        || Math.abs(a.frame - cursor) - Math.abs(b.frame - cursor));
+    for (const item of pending) {
+        thumbnailQueue.push(item);
     }
     pumpThumbnailQueue();
 }
@@ -707,9 +757,9 @@ function scheduleThumbnails() {
  * 取消已经不需要的请求
  * 游标移动后，旧位置的请求立即让出名额给新的当前帧
  */
-function cancelStaleRequests(wanted) {
-    for (const [frame, entry] of Array.from(thumbnailRequests)) {
-        if (wanted.has(frame)) {
+function cancelStaleRequests(wantedKeys) {
+    for (const [key, entry] of Array.from(thumbnailRequests)) {
+        if (wantedKeys.has(key)) {
             continue;
         }
         entry.controller.abort();
@@ -724,20 +774,21 @@ function pumpThumbnailQueue() {
     while (thumbnailActive < THUMBNAIL_MAX_CONCURRENT && thumbnailQueue.length) {
         let best = 0;
         for (let i = 1; i < thumbnailQueue.length; i++) {
-            if (thumbnailPriority(thumbnailQueue[i]) < thumbnailPriority(thumbnailQueue[best])) {
+            if (thumbnailPriority(thumbnailQueue[i].frame) < thumbnailPriority(thumbnailQueue[best].frame)) {
                 best = i;
             }
         }
-        const frame = thumbnailQueue.splice(best, 1)[0];
-        startThumbnailRequest(frame);
+        const item = thumbnailQueue.splice(best, 1)[0];
+        startThumbnailRequest(item.frame, item.size);
     }
 }
 
 /**
  * 加载一帧缩略图
- * 同一帧只保留一个进行中的请求，失败后可以重试
+ * 同一帧同一尺寸只保留一个进行中的请求，失败后可以重试
  */
-function startThumbnailRequest(frame) {
+function startThumbnailRequest(frame, size) {
+    const key = thumbnailKey(frame, size);
     const priority = frame === cursor ? 'foreground' : 'background';
     const controller = new AbortController();
     const epoch = thumbnailEpoch;
@@ -745,10 +796,11 @@ function startThumbnailRequest(frame) {
     const entry = {controller, priority};
     const request = (async () => {
         try {
-            const response = await fetch(`/api/clip-projects/${project.id}/frames/${frame}/thumbnail`, {
-                headers: {'X-Thumbnail-Priority': priority},
-                signal: controller.signal
-            });
+            const response = await fetch(
+                `/api/clip-projects/${project.id}/frames/${frame}/thumbnail?size=${size}`, {
+                    headers: {'X-Thumbnail-Priority': priority},
+                    signal: controller.signal
+                });
             if (!response.ok) {
                 return null;
             }
@@ -759,14 +811,14 @@ function startThumbnailRequest(frame) {
         }
     })();
     entry.promise = request;
-    thumbnailRequests.set(frame, entry);
+    thumbnailRequests.set(key, entry);
     request.then(blob => {
-        if (thumbnailRequests.get(frame) === entry) {
-            thumbnailRequests.delete(frame);
+        if (thumbnailRequests.get(key) === entry) {
+            thumbnailRequests.delete(key);
         }
         thumbnailActive--;
         if (epoch === thumbnailEpoch && blob && blob.size > 0) {
-            storeThumbnail(frame, blob);
+            storeThumbnail(frame, size, blob);
             applyThumbnail(frame);
         }
         pumpThumbnailQueue();
@@ -774,10 +826,22 @@ function startThumbnailRequest(frame) {
 }
 
 /**
- * 取缓存中的缩略图地址，未命中返回 null
+ * 缩略图缓存的键
+ * 同一帧可以有两种尺寸，分别缓存
  */
-function cachedThumbnail(frame) {
-    const entry = thumbnails.get(frame);
+function thumbnailKey(frame, size) {
+    return frame + ':' + size;
+}
+
+/**
+ * 取某一帧可用的缩略图地址
+ * 当前帧优先用大尺寸，邻帧用小尺寸；另一种尺寸也可以临时顶上
+ */
+function bestThumbnail(frame) {
+    const prefer = frame === cursor ? SIZE_LARGE : SIZE_SMALL;
+    const fallback = prefer === SIZE_LARGE ? SIZE_SMALL : SIZE_LARGE;
+    const entry = thumbnails.get(thumbnailKey(frame, prefer))
+        || thumbnails.get(thumbnailKey(frame, fallback));
     if (!entry) {
         return null;
     }
@@ -788,8 +852,9 @@ function cachedThumbnail(frame) {
 /**
  * 存入缩略图并淘汰超出预算的旧图
  */
-function storeThumbnail(frame, blob) {
-    const previous = thumbnails.get(frame);
+function storeThumbnail(frame, size, blob) {
+    const key = thumbnailKey(frame, size);
+    const previous = thumbnails.get(key);
     if (previous) {
         thumbnailBytes -= previous.bytes;
         URL.revokeObjectURL(previous.url);
@@ -797,10 +862,11 @@ function storeThumbnail(frame, blob) {
     const entry = {
         url: URL.createObjectURL(blob),
         bytes: blob.size,
+        frame,
         timeMs: frameTimeMs(frame),
         lastUsed: Date.now()
     };
-    thumbnails.set(frame, entry);
+    thumbnails.set(key, entry);
     thumbnailBytes += entry.bytes;
     pruneThumbnails();
 }
@@ -813,7 +879,7 @@ function applyThumbnail(frame) {
     if (!item) {
         return;
     }
-    const url = cachedThumbnail(frame);
+    const url = bestThumbnail(frame);
     if (!url) {
         return;
     }
@@ -834,29 +900,29 @@ function pruneThumbnails() {
     }
     const pinned = pinnedFrames();
     const currentMs = frameTimeMs(cursor);
-    for (const [frame, entry] of Array.from(thumbnails)) {
-        if (pinned.has(frame)) {
+    for (const [key, entry] of Array.from(thumbnails)) {
+        if (pinned.has(entry.frame)) {
             continue;
         }
         // 窗口按帧在源视频中的时间计算，可变帧率视频同样适用
         if (frameTimes.length && Math.abs(entry.timeMs - currentMs) > THUMBNAIL_WINDOW_MS) {
-            dropThumbnail(frame);
+            dropThumbnail(key);
         }
     }
     while (thumbnailBytes > THUMBNAIL_MAX_BYTES) {
         let oldest = null;
-        for (const [frame, entry] of thumbnails) {
-            if (pinned.has(frame)) {
+        for (const [key, entry] of thumbnails) {
+            if (pinned.has(entry.frame)) {
                 continue;
             }
             if (!oldest || entry.lastUsed < oldest.entry.lastUsed) {
-                oldest = {frame, entry};
+                oldest = {key, entry};
             }
         }
         if (!oldest) {
             break;
         }
-        dropThumbnail(oldest.frame);
+        dropThumbnail(oldest.key);
     }
 }
 
@@ -874,12 +940,12 @@ function pinnedFrames() {
 /**
  * 删除缓存条目并释放地址
  */
-function dropThumbnail(frame) {
-    const entry = thumbnails.get(frame);
+function dropThumbnail(key) {
+    const entry = thumbnails.get(key);
     if (!entry) {
         return;
     }
-    thumbnails.delete(frame);
+    thumbnails.delete(key);
     thumbnailBytes -= entry.bytes;
     URL.revokeObjectURL(entry.url);
 }

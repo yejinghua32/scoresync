@@ -27,8 +27,10 @@ scoresync:
     cache-dir: ${SCORESYNC_DATA_DIR:${user.home}/.scoresync}/clip-cache
     work-dir: ${SCORESYNC_DATA_DIR:${user.home}/.scoresync}/clip-render-work
     thumbnail-width: 320
+    thumbnail-large-width: 640
     thumbnail-format: JPEG
     thumbnail-quality: 6
+    thumbnail-large-quality: 4
     max-cached-thumbnail-bytes: 268435456
     max-concurrent-thumbnail-jobs: 2
     thumbnail-seek-frames: 30

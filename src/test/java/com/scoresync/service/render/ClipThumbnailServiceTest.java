@@ -4,7 +4,7 @@ import com.scoresync.config.AppProperties;
 import com.scoresync.domain.ClipFrameIndex;
 import com.scoresync.domain.ClipFrameIndexStatus;
 import com.scoresync.domain.ClipProject;
-import com.scoresync.domain.ClipThumbnailFormat;
+import com.scoresync.domain.ClipThumbnailSpec;
 import com.scoresync.repository.ClipProjectRepository;
 import com.scoresync.repository.VideoAssetRepository;
 import com.scoresync.service.ClipSourceValidator;
@@ -156,6 +156,37 @@ class ClipThumbnailServiceTest {
     }
 
     @Test
+    void largeSpecUsesWiderImageAndOwnCacheEntry() throws Exception {
+        long id = readyProject();
+        ClipThumbnailSpec large = service.specFor("large");
+
+        service.thumbnail(projects.findById(id), 2, large, true);
+
+        assertThat(large.width()).isGreaterThan(service.specFor("small").width());
+        assertThat(extractor.format.width()).isEqualTo(large.width());
+        assertThat(extractor.format.quality()).isEqualTo(large.quality());
+    }
+
+    @Test
+    void unknownSizeFallsBackToSmallSpec() {
+        assertThat(service.specFor(null)).isEqualTo(service.specFor("small"));
+        assertThat(service.specFor("huge")).isEqualTo(service.specFor("small"));
+        assertThat(service.specFor("LARGE")).isEqualTo(service.specFor("large"));
+    }
+
+    @Test
+    void smallAndLargeThumbnailsAreCachedSeparately() throws Exception {
+        long id = readyProject();
+
+        service.thumbnail(projects.findById(id), 2, service.specFor("small"), true);
+        service.thumbnail(projects.findById(id), 2, service.specFor("large"), true);
+
+        // 两种尺寸各自抽一次，互不覆盖
+        assertThat(extractor.calls.get()).isEqualTo(2);
+        assertThat(thumbDir().resolve("2.jpg")).exists();
+    }
+
+    @Test
     void reusesDiskCacheAfterRestart() throws Exception {
         long id = readyProject();
         service.thumbnail(projects.findById(id), 1);
@@ -256,7 +287,13 @@ class ClipThumbnailServiceTest {
                     .findFirst()
                     .orElseThrow(() -> new AssertionError("未找到缩略图缓存版本目录"));
         }
-        return version.resolve(fingerprint);
+        Path spec;
+        try (var stream = Files.list(version)) {
+            spec = stream.filter(Files::isDirectory)
+                    .findFirst()
+                    .orElseThrow(() -> new AssertionError("未找到缩略图缓存档位目录"));
+        }
+        return spec.resolve(fingerprint);
     }
 
     /**
@@ -299,7 +336,7 @@ class ClipThumbnailServiceTest {
     static class FakeExtractor extends ClipFrameExtractor {
         final AtomicInteger calls = new AtomicInteger();
         volatile double seekSeconds;
-        volatile ClipThumbnailFormat format;
+        volatile ClipThumbnailSpec format;
         /** 模拟抽帧耗时（毫秒） */
         volatile long delayMillis = 0;
         /** 写入的固定字节数，大于 0 时用于核对缓存容量 */
@@ -310,10 +347,10 @@ class ClipThumbnailServiceTest {
         }
 
         @Override
-        public void extract(Path source, double seekSeconds, Path output, ClipThumbnailFormat format) {
+        public void extract(Path source, double seekSeconds, Path output, ClipThumbnailSpec spec) {
             calls.incrementAndGet();
             this.seekSeconds = seekSeconds;
-            this.format = format;
+            this.format = spec;
             if (delayMillis > 0) {
                 try {
                     Thread.sleep(delayMillis);

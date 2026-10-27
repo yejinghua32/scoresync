@@ -9,6 +9,7 @@ import com.scoresync.domain.ClipSegmentType;
 import com.scoresync.domain.VideoAsset;
 import com.scoresync.repository.ClipProjectRepository;
 import com.scoresync.repository.ClipSegmentRepository;
+import com.scoresync.support.DomainNotFoundException;
 import com.scoresync.support.DomainValidationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -136,6 +137,25 @@ public class ClipProjectService {
                 segmentRepository.insert(projectId, segment.type(), segment.startFrame(), segment.endFrame());
             }
             return segmentRepository.findByProjectId(projectId);
+        } finally {
+            commitLock.unlock();
+        }
+    }
+
+    /**
+     * 删除一个已存档片段
+     * 该区间的帧回到未标记状态，其余片段保持不变
+     */
+    @Transactional
+    public void deleteSegment(long projectId, long segmentId) {
+        projectRepository.findById(projectId);
+        ClipSegment segment = segmentRepository.findById(segmentId);
+        if (segment.projectId() != projectId) {
+            throw new DomainNotFoundException("剪辑片段不存在");
+        }
+        commitLock.lock();
+        try {
+            segmentRepository.delete(segmentId);
         } finally {
             commitLock.unlock();
         }

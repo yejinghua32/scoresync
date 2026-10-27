@@ -1209,6 +1209,22 @@ button.danger:hover {
     color: var(--text-dim);
 }
 
+.clip-segment-delete {
+    margin-left: auto;
+    padding: 0.15rem 0.5rem;
+    font-size: 0.75rem;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--text-dim);
+    cursor: pointer;
+}
+
+.clip-segment-delete:hover {
+    border-color: var(--danger);
+    color: var(--danger);
+}
+
 @media (max-width: 1000px) {
     .clip-main {
         grid-template-columns: minmax(0, 1fr);

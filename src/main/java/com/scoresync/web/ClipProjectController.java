@@ -2,6 +2,7 @@ package com.scoresync.web;
 
 import com.scoresync.domain.ClipSegmentSpec;
 import com.scoresync.domain.ClipSegmentType;
+import com.scoresync.domain.ClipThumbnailSpec;
 import com.scoresync.service.ClipProjectService;
 import com.scoresync.service.render.ClipFrameIndexService;
 import com.scoresync.service.render.ClipThumbnailService;
@@ -94,6 +95,16 @@ public class ClipProjectController {
     }
 
     /**
+     * 删除一个已存档片段
+     * 该区间的帧回到未标记状态
+     */
+    @DeleteMapping("/{id}/segments/{segmentId}")
+    public ClipProjectResponse deleteSegment(@PathVariable long id, @PathVariable long segmentId) {
+        clipProjectService.deleteSegment(id, segmentId);
+        return ClipProjectResponse.from(clipProjectService.detail(id));
+    }
+
+    /**
      * 删除剪辑项目
      */
     @DeleteMapping("/{id}")
@@ -142,13 +153,15 @@ public class ClipProjectController {
     @GetMapping("/{id}/frames/{frameNo}/thumbnail")
     public ResponseEntity<byte[]> thumbnail(@PathVariable long id,
                                             @PathVariable int frameNo,
+                                            @RequestParam(value = "size", required = false) String size,
                                             @RequestHeader(value = "X-Thumbnail-Priority", required = false) String priority) {
         var detail = clipProjectService.detail(id);
         boolean foreground = !BACKGROUND_PRIORITY.equalsIgnoreCase(priority);
-        byte[] data = thumbnailService.thumbnail(detail.project(), frameNo, foreground);
+        ClipThumbnailSpec spec = thumbnailService.specFor(size);
+        byte[] data = thumbnailService.thumbnail(detail.project(), frameNo, spec, foreground);
 
         HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.parseMediaType(thumbnailService.thumbnailFormat().mediaType()));
+        headers.setContentType(MediaType.parseMediaType(spec.format().mediaType()));
         headers.setCacheControl("no-store");
         return ResponseEntity.ok().headers(headers).body(data);
     }

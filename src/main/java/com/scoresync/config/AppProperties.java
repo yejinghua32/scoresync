@@ -163,8 +163,10 @@ public class AppProperties {
         private String cacheDir = System.getProperty("user.home") + "/.scoresync/clip-cache";
         private String workDir = System.getProperty("user.home") + "/.scoresync/clip-render-work";
         private int thumbnailWidth = 320;
+        private int thumbnailLargeWidth = 640;
         private String thumbnailFormat = "JPEG";
         private int thumbnailQuality = 6;
+        private int thumbnailLargeQuality = 4;
         private long maxCachedThumbnailBytes = 256L * 1024 * 1024;
         private int maxConcurrentThumbnailJobs = 2;
         private int thumbnailSeekFrames = 30;
@@ -205,6 +207,18 @@ public class AppProperties {
         }
 
         /**
+         * 当前帧使用的缩略图宽度
+         * 画面更大，放大展示时更清晰
+         */
+        public int getThumbnailLargeWidth() {
+            return thumbnailLargeWidth;
+        }
+
+        public void setThumbnailLargeWidth(int thumbnailLargeWidth) {
+            this.thumbnailLargeWidth = thumbnailLargeWidth;
+        }
+
+        /**
          * 有损格式的质量，数值越小画质越好、体积越大
          */
         public int getThumbnailQuality() {
@@ -213,6 +227,17 @@ public class AppProperties {
 
         public void setThumbnailQuality(int thumbnailQuality) {
             this.thumbnailQuality = thumbnailQuality;
+        }
+
+        /**
+         * 当前帧使用的缩略图质量，数值越小画质越好
+         */
+        public int getThumbnailLargeQuality() {
+            return thumbnailLargeQuality;
+        }
+
+        public void setThumbnailLargeQuality(int thumbnailLargeQuality) {
+            this.thumbnailLargeQuality = thumbnailLargeQuality;
         }
 
         /**

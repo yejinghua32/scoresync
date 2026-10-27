@@ -3,7 +3,7 @@ package com.scoresync.web;
 import com.scoresync.config.AppProperties;
 import com.scoresync.domain.ClipFrameIndex;
 import com.scoresync.domain.ClipFrameIndexStatus;
-import com.scoresync.domain.ClipThumbnailFormat;
+import com.scoresync.domain.ClipThumbnailSpec;
 import com.scoresync.repository.ClipProjectRepository;
 import com.scoresync.repository.ClipSegmentRepository;
 import com.scoresync.repository.VideoAssetRepository;
@@ -38,6 +38,7 @@ class ClipProjectApiIntegrationTest {
 
     private MockMvc mockMvc;
     private ClipProjectRepository projects;
+    private ClipSegmentRepository segments;
     private Path videoFile;
 
     @BeforeEach
@@ -80,6 +81,7 @@ class ClipProjectApiIntegrationTest {
         VideoAssetRepository assets = new VideoAssetRepository(jdbc);
         projects = new ClipProjectRepository(jdbc);
         ClipSegmentRepository segments = new ClipSegmentRepository(jdbc);
+        this.segments = segments;
         ClipProjectService service = new ClipProjectService(projects, segments,
                 new ClipSourceValidator(assets));
 
@@ -283,6 +285,18 @@ class ClipProjectApiIntegrationTest {
     }
 
     @Test
+    void thumbnailAcceptsLargeSize() throws Exception {
+        long id = createProject();
+        awaitIndexReady(id);
+
+        mockMvc.perform(get("/api/clip-projects/{id}/frames/{frameNo}/thumbnail", id, 2)
+                        .param("size", "large"))
+                .andExpect(status().isOk())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.IMAGE_JPEG))
+                .andExpect(result -> assertThat(result.getResponse().getContentAsByteArray()).isNotEmpty());
+    }
+
+@Test
     void thumbnailRejectsOutOfRangeFrame() throws Exception {
         long id = createProject();
         awaitIndexReady(id);
@@ -291,6 +305,30 @@ class ClipProjectApiIntegrationTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("DOMAIN_VALIDATION"))
                 .andExpect(jsonPath("$.message").value(containsString("帧序号超出范围")));
+    }
+
+    @Test
+    void deleteSegmentRemovesItFromProject() throws Exception {
+        long id = createProject();
+        projects.updateFrameIndex(id, ClipFrameIndexStatus.READY, 300);
+        mockMvc.perform(post("/api/clip-projects/{id}/segments", id)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"segments\":[{\"type\":\"KEEP\",\"startFrame\":0,\"endFrame\":10}]}"))
+                .andExpect(status().isOk());
+        long segmentId = segments.findByProjectId(id).get(0).id();
+
+        mockMvc.perform(delete("/api/clip-projects/{id}/segments/{segmentId}", id, segmentId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.segments.length()").value(0));
+    }
+
+    @Test
+    void deleteUnknownSegmentReturnsNotFound() throws Exception {
+        long id = createProject();
+
+        mockMvc.perform(delete("/api/clip-projects/{id}/segments/{segmentId}", id, 999L))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("NOT_FOUND"));
     }
 
     /**
@@ -345,7 +383,7 @@ class ClipProjectApiIntegrationTest {
         }
 
         @Override
-        public void extract(Path source, double seekSeconds, Path output, ClipThumbnailFormat format) {
+        public void extract(Path source, double seekSeconds, Path output, ClipThumbnailSpec spec) {
             try {
                 Files.createDirectories(output.getParent());
                 Files.writeString(output, "fake-thumbnail");
