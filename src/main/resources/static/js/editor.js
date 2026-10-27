@@ -340,6 +340,17 @@ function isEditableTarget(target) {
         target instanceof HTMLSelectElement || target.isContentEditable;
 }
 
+/**
+ * 原生播放器控件（进度条、音量条等）拿到焦点后，浏览器不再把按键事件派发到页面，
+ * 编辑器快捷键会整体失灵。视频重新获得焦点时立刻把焦点交还给页面，
+ * 快捷键即可恢复使用；原生控件自身的点击、拖动与播放不受影响。
+ */
+document.addEventListener('focusin', (event) => {
+    if (event.target === video) {
+        video.blur();
+    }
+});
+
 document.addEventListener('keydown', (event) => {
     if (isEditableTarget(event.target)) return;
 
