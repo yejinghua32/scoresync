@@ -1014,10 +1014,13 @@ button.danger:hover {
     display: block;
 }
 
+/* 帧信息与暂选信息，展示在时间轴上方 */
 .clip-meta {
     display: flex;
     gap: 1.25rem;
     flex-wrap: wrap;
+    align-items: baseline;
+    margin-bottom: 0.4rem;
     font-size: 0.875rem;
     color: var(--text-dim);
     font-variant-numeric: tabular-nums;

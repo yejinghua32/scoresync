@@ -210,11 +210,19 @@ function onKeyDown(e) {
             break;
         case 'ArrowRight':
             e.preventDefault();
-            extendPending(smallStep);
+            if (pending) {
+                extendPending(smallStep);
+            } else {
+                moveCursor(smallStep);
+            }
             break;
         case 'ArrowLeft':
             e.preventDefault();
-            shrinkPending(smallStep);
+            if (pending) {
+                shrinkPending(smallStep);
+            } else {
+                moveCursor(-smallStep);
+            }
             break;
         case 'Enter':
             e.preventDefault();
@@ -278,6 +286,25 @@ function shrinkPending(step) {
         cursor = pending.end;
     }
     renderPending();
+    updateFrameInfo();
+    refreshStrip();
+}
+
+/**
+ * 没有暂选时用左右键移动当前帧
+ * 移动后视频同步跳到该帧，步长与暂选的增减一致
+ */
+function moveCursor(step) {
+    if (totalFrames <= 0) {
+        return;
+    }
+    const target = Math.min(totalFrames - 1, Math.max(0, cursor + step));
+    if (target === cursor) {
+        return;
+    }
+    cursor = target;
+    seekRestoreFrame = cursor;
+    video.currentTime = frameTimeMs(cursor) / 1000;
     updateFrameInfo();
     refreshStrip();
 }
@@ -553,6 +580,27 @@ async function loadThumbnail(frame) {
 }
 
 /**
+ * 帧区间的时长（毫秒）
+ * 区间为左闭右开 [start, end)，与导出时的区间口径一致；
+ * end 超出末帧时按末帧的间隔补足
+ */
+function frameRangeMs(start, end) {
+    if (!frameTimes.length || end <= start) {
+        return 0;
+    }
+    const last = frameTimes.length - 1;
+    const from = frameTimes[Math.min(start, last)];
+    let to;
+    if (end <= last) {
+        to = frameTimes[end];
+    } else {
+        const tail = last > 0 ? frameTimes[last] - frameTimes[last - 1] : 0;
+        to = frameTimes[last] + tail;
+    }
+    return Math.max(0, to - from);
+}
+
+/**
  * 渲染暂选状态
  */
 function renderPending() {
@@ -564,7 +612,9 @@ function renderPending() {
         return;
     }
     const typeLabel = pending.type === 'KEEP' ? '保留' : '舍弃';
-    info.textContent = `暂选：${typeLabel} ${pending.start} - ${pending.end}（${pending.end - pending.start} 帧）`;
+    const frames = pending.end - pending.start;
+    const seconds = (frameRangeMs(pending.start, pending.end) / 1000).toFixed(3);
+    info.textContent = `暂选：${typeLabel} ${pending.start} - ${pending.end}（${frames} 帧 / ${seconds} 秒）`;
     info.className = pending.type === 'KEEP' ? 'pending-keep' : 'pending-drop';
     renderTimeline();
 }

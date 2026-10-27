@@ -43,6 +43,11 @@
             时间轴
             <span class="clip-section-hint">点击跳到任意源帧</span>
         </div>
+        <div class="clip-meta">
+            <span id="clip-frame-info">帧 -</span>
+            <span id="clip-pending-info">暂选：无</span>
+            <span id="clip-video-time"></span>
+        </div>
         <div class="clip-timeline-wrap">
             <div id="clip-timeline" class="clip-timeline"></div>
             <div id="clip-timeline-cursor" class="clip-timeline-cursor"></div>
@@ -61,15 +66,11 @@
         <div class="clip-stage">
             <video id="clip-video" controls preload="metadata"></video>
         </div>
-        <div class="clip-meta">
-            <span id="clip-frame-info">帧 -</span>
-            <span id="clip-pending-info">暂选：无</span>
-            <span id="clip-video-time"></span>
-        </div>
         <div class="clip-hotkey-hints">
             <span>↑/↓ - 设为保留/舍弃并取大步长</span>
             <span>→ - 追加小步长</span>
             <span>← - 暂选末尾减少小步长</span>
+            <span>无暂选时 ←/→ 移动当前帧</span>
             <span>Enter - 存档暂选</span>
             <span>空格 - 播放/暂停</span>
         </div>
