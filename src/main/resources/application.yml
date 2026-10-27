@@ -4,6 +4,12 @@ spring:
   sql:
     init:
       mode: always
+  web:
+    resources:
+      # 静态资源每次都回源校验，避免升级后浏览器继续使用旧的脚本与样式
+      cache:
+        cachecontrol:
+          no-cache: true
 scoresync:
   storage:
     data-dir: ${SCORESYNC_DATA_DIR:${user.home}/.scoresync}

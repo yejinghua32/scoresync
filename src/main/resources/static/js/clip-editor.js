@@ -12,10 +12,8 @@ import {api, escapeHtml} from './api.js';
  * 暂选只存在于前端内存，按 Enter 存档后才持久化
  */
 
-const STRIP_RADIUS = 4;
-/** 相邻缩略图的最大水平间距（像素），实际间距按缩略图条宽度自适应 */
-const STRIP_MAX_OFFSET = 96;
-const STRIP_MIN_OFFSET = 20;
+/** 左右两侧显示的帧偏移：当前帧的前/后第 3 帧 */
+const STRIP_SIDE_OFFSET = 3;
 /** 预取游标前方的小组帧数上限，只覆盖接下来的几步，不预先生成整段视频 */
 const PREFETCH_AHEAD_MAX = 12;
 /** 缩略图缓存保留的时间窗口（毫秒），以当前播放位置为中心 */
@@ -57,6 +55,8 @@ let frameTimes = new Int32Array(0);
 let renderPollTimer = null;
 /** 跳转完成后需要恢复的帧号，非空时暂停游标跟随 */
 let seekRestoreFrame = null;
+/** 用户是否手动定位过视频，手动定位期间跳播预览让位 */
+let manualPosition = false;
 
 const video = document.getElementById('clip-video');
 const timeline = document.getElementById('clip-timeline');
@@ -79,12 +79,18 @@ async function init() {
 function bindEvents() {
     document.addEventListener('keydown', onKeyDown);
     timeline.addEventListener('click', onTimelineClick);
+    document.getElementById('clip-segment-list').addEventListener('click', onSegmentClick);
     document.getElementById('clip-save-config').addEventListener('click', saveConfig);
     document.getElementById('clip-export').addEventListener('click', startExport);
     document.getElementById('clip-cancel-export').addEventListener('click', cancelExport);
     video.addEventListener('timeupdate', onTimeUpdate);
     video.addEventListener('seeked', onSeeked);
-    window.addEventListener('resize', () => renderTimeline());
+    // 视频尺寸就绪后按真实比例重排缩略图条
+    video.addEventListener('loadedmetadata', renderStrip);
+    window.addEventListener('resize', () => {
+        renderTimeline();
+        renderStrip();
+    });
     window.addEventListener('beforeunload', releaseThumbnails);
     // 原生播放器控件拿到焦点后浏览器不再把按键事件派发到页面，
     // 剪辑快捷键会整体失灵；焦点回到页面后即可恢复。
@@ -137,6 +143,8 @@ async function ensureFrameIndex(projectId) {
             await loadFrameTimes();
             updateFrameInfo();
             updateExportAvailability();
+            // 帧时间就绪后重算片段时长
+            renderSegments();
             refreshStrip();
             return;
         }
@@ -278,6 +286,7 @@ function stepSelection(type) {
     cursor = Math.min(totalFrames, pending.end);
     renderPending();
     updateFrameInfo();
+    seekVideoToFrame(cursor);
     refreshStrip();
 }
 
@@ -292,6 +301,7 @@ function extendPending(step) {
     cursor = pending.end;
     renderPending();
     updateFrameInfo();
+    seekVideoToFrame(cursor);
     refreshStrip();
 }
 
@@ -310,6 +320,7 @@ function shrinkPending(step) {
     }
     renderPending();
     updateFrameInfo();
+    seekVideoToFrame(cursor);
     refreshStrip();
 }
 
@@ -325,11 +336,43 @@ function moveCursor(step) {
     if (target === cursor) {
         return;
     }
+    moveCursorTo(target);
+}
+
+/**
+ * 把当前帧移动到指定帧
+ * 视频同步定位到该帧对应的时间
+ */
+function moveCursorTo(frame) {
+    if (totalFrames <= 0) {
+        return;
+    }
+    const target = Math.min(totalFrames - 1, Math.max(0, frame));
     cursor = target;
-    seekRestoreFrame = cursor;
-    video.currentTime = frameTimeMs(cursor) / 1000;
+    seekVideoToFrame(target);
     updateFrameInfo();
     refreshStrip();
+}
+
+/**
+ * 让视频定位到指定帧的时间
+ * 跳转期间暂停游标跟随，避免浏览器实际落点回写覆盖用户选中的帧；
+ * 定位后跳播预览让位给用户选择的位置，直到用户再次播放
+ */
+function seekVideoToFrame(frame) {
+    if (!totalFrames) {
+        return;
+    }
+    const target = Math.min(totalFrames - 1, Math.max(0, frame));
+    const seconds = frameTimeMs(target) / 1000;
+    if (Math.abs(video.currentTime - seconds) < 0.001) {
+        // 已经停在这一帧，不需要跳转
+        seekRestoreFrame = null;
+        return;
+    }
+    seekRestoreFrame = frame;
+    manualPosition = true;
+    video.currentTime = seconds;
 }
 
 /**
@@ -362,6 +405,8 @@ async function commitPending() {
 
 function togglePlay() {
     if (video.paused) {
+        // 再次播放时跳播预览重新接管
+        manualPosition = false;
         video.play();
     } else {
         video.pause();
@@ -377,15 +422,29 @@ function onTimelineClick(e) {
     }
     const rect = timeline.getBoundingClientRect();
     const ratio = Math.min(Math.max((e.clientX - rect.left) / rect.width, 0), 0.9999);
-    cursor = Math.min(totalFrames - 1, Math.floor(ratio * totalFrames));
     // 跳到新位置后暂选从当前位置重新开始
     pending = null;
-    // 跳转期间暂停游标跟随，避免浏览器实际落点回写覆盖用户选中的帧
-    seekRestoreFrame = cursor;
-    video.currentTime = frameTimeMs(cursor) / 1000;
+    moveCursorTo(Math.min(totalFrames - 1, Math.floor(ratio * totalFrames)));
     renderPending();
-    updateFrameInfo();
-    refreshStrip();
+}
+
+/**
+ * 点击已存档片段：定位到该片段的最后一帧
+ * 片段是半开区间 [startFrame, endFrame)，最后一帧为 endFrame - 1
+ */
+function onSegmentClick(e) {
+    const item = e.target.closest('.clip-segment-item');
+    if (!item) {
+        return;
+    }
+    const start = Number(item.dataset.start);
+    const end = Number(item.dataset.end);
+    if (!Number.isFinite(start) || !Number.isFinite(end)) {
+        return;
+    }
+    pending = null;
+    moveCursorTo(Math.max(start, end - 1));
+    renderPending();
 }
 
 /**
@@ -415,6 +474,10 @@ function onTimeUpdate() {
  */
 function enforceKeepPlayback() {
     if (video.paused) {
+        return;
+    }
+    if (manualPosition) {
+        // 用户刚手动定位过，跳播预览先让位，直到用户再次播放
         return;
     }
     const keeps = keepSegments();
@@ -457,9 +520,22 @@ function keepSegments() {
 function renderSegments() {
     renderSegmentList();
 
-    const kept = keepSegments().reduce((sum, segment) => sum + (segment.endFrame - segment.startFrame), 0);
-    document.getElementById('clip-keep-summary').textContent =
-        totalFrames > 0 ? `保留 ${kept} / ${totalFrames} 帧` : '';
+    const keeps = keepSegments();
+    const keptFrames = keeps.reduce((sum, segment) => sum + (segment.endFrame - segment.startFrame), 0);
+    const keptMs = keeps.reduce((sum, segment) => sum + frameRangeMs(segment.startFrame, segment.endFrame), 0);
+    const summary = document.getElementById('clip-keep-summary');
+    if (!totalFrames) {
+        summary.textContent = '';
+        return;
+    }
+    summary.textContent = `保留 ${keptFrames} 帧 / ${formatDuration(keptMs)} · 视频总时长 ${formatDuration(frameRangeMs(0, totalFrames))}`;
+}
+
+/**
+ * 时长显示文本
+ */
+function formatDuration(ms) {
+    return `${(Math.max(0, ms) / 1000).toFixed(3)} 秒`;
 }
 
 /**
@@ -489,10 +565,11 @@ function renderSegmentList() {
         return;
     }
     list.innerHTML = segments.map(segment => `
-    <div class="clip-segment-item ${segment.type === 'KEEP' ? 'keep' : 'drop'}">
+    <div class="clip-segment-item ${segment.type === 'KEEP' ? 'keep' : 'drop'}"
+         data-start="${segment.startFrame}" data-end="${segment.endFrame}" title="点击定位到该片段的最后一帧">
       <span class="clip-segment-type">${segment.type === 'KEEP' ? '保留' : '舍弃'}</span>
       <span class="clip-segment-range">${segment.startFrame} - ${segment.endFrame}</span>
-      <span class="clip-segment-count">${segment.endFrame - segment.startFrame} 帧</span>
+      <span class="clip-segment-count">${segment.endFrame - segment.startFrame} 帧 / ${formatDuration(frameRangeMs(segment.startFrame, segment.endFrame))}</span>
     </div>`).join('');
 }
 
@@ -515,49 +592,44 @@ function refreshStrip() {
 }
 
 /**
- * 渲染重叠缩略图
- * 当前帧最大，前后帧依次变小并相互重叠
+ * 渲染缩略图条
+ * 只显示三张：中间是当前帧，左边是前第 3 帧，右边是后第 3 帧
  */
 function renderStrip() {
     if (!totalFrames) {
         strip.innerHTML = '';
         return;
     }
-    const start = Math.max(0, cursor - STRIP_RADIUS);
-    const end = Math.min(totalFrames - 1, cursor + STRIP_RADIUS);
-    const frames = [];
-    for (let frame = start; frame <= end; frame++) {
-        frames.push(frame);
-    }
-
-    // 以当前帧为中心排布，当前帧位于正中并压在相邻帧之上
-    const center = cursor - start;
-    const offset = stripOffset(frames, center);
-    strip.innerHTML = frames.map((frame, index) => {
+    // 固定三个位置：左侧、当前帧、右侧
+    // 缺少的一侧保留空位，当前帧始终居中
+    const layout = stripLayout();
+    strip.innerHTML = [cursor - STRIP_SIDE_OFFSET, cursor, cursor + STRIP_SIDE_OFFSET].map(frame => {
+        const isCurrent = frame === cursor;
+        const width = isCurrent ? layout.currentWidth : layout.sideWidth;
+        const height = isCurrent ? layout.currentHeight : layout.sideHeight;
+        if (frame < 0 || frame > totalFrames - 1) {
+            return `<div class="clip-strip-item empty" style="width:${width}px;height:${height}px"></div>`;
+        }
         const cached = cachedThumbnail(frame);
-        const distance = Math.abs(frame - cursor);
-        const scale = Math.max(0.5, 1 - distance * 0.1);
-        const shift = (index - center) * offset;
-        const zIndex = 20 - distance;
         const image = cached
             ? `<img src="${cached}" alt="第${frame}帧">`
             : `<div class="clip-strip-placeholder"></div>`;
-        return `<div class="clip-strip-item ${frame === cursor ? 'current' : ''}"
+        return `<div class="clip-strip-item ${isCurrent ? 'current' : ''}"
                      data-frame="${frame}"
-                     style="left:calc(50% + ${shift}px);transform:translateX(-50%) scale(${scale});z-index:${zIndex}">${image}</div>`;
+                     style="width:${width}px;height:${height}px">${image}</div>`;
     }).join('');
 }
 
 /**
  * 当前关注的帧
- * 可见邻帧加上游标前方的一小组预取帧
+ * 三张可见帧加上游标前方的一小组预取帧
  */
 function wantedFrames() {
     const frames = new Set();
     if (!totalFrames) {
         return frames;
     }
-    for (let frame = Math.max(0, cursor - STRIP_RADIUS); frame <= Math.min(totalFrames - 1, cursor + STRIP_RADIUS); frame++) {
+    for (let frame = Math.max(0, cursor - STRIP_SIDE_OFFSET); frame <= Math.min(totalFrames - 1, cursor + STRIP_SIDE_OFFSET); frame++) {
         frames.add(frame);
     }
     for (let frame = cursor + 1; frame <= Math.min(totalFrames - 1, cursor + prefetchAhead()); frame++) {
@@ -571,7 +643,7 @@ function wantedFrames() {
  * 覆盖下一步移动之后可见的窗口，使连续步进不需要新的抽帧
  */
 function prefetchAhead() {
-    return Math.min(PREFETCH_AHEAD_MAX, STRIP_RADIUS + Math.max(1, smallStep));
+    return Math.min(PREFETCH_AHEAD_MAX, STRIP_SIDE_OFFSET + Math.max(1, smallStep));
 }
 
 /**
@@ -581,7 +653,7 @@ function thumbnailPriority(frame) {
     if (frame === cursor) {
         return 0;
     }
-    return Math.abs(frame - cursor) <= STRIP_RADIUS ? 1 : 2;
+    return Math.abs(frame - cursor) <= STRIP_SIDE_OFFSET ? 1 : 2;
 }
 
 /**
@@ -793,7 +865,7 @@ function pruneThumbnails() {
  */
 function pinnedFrames() {
     const pinned = new Set([cursor]);
-    for (let frame = Math.max(0, cursor - STRIP_RADIUS); frame <= Math.min(totalFrames - 1, cursor + STRIP_RADIUS); frame++) {
+    for (let frame = Math.max(0, cursor - STRIP_SIDE_OFFSET); frame <= Math.min(totalFrames - 1, cursor + STRIP_SIDE_OFFSET); frame++) {
         pinned.add(frame);
     }
     return pinned;
@@ -827,26 +899,43 @@ function releaseThumbnails() {
 }
 
 /**
- * 计算相邻缩略图的水平间距
- * 缩略图放大后单张宽度较大，间距按缩略图条的实际宽度收紧，
- * 保证最外侧的缩略图不会被裁掉
+ * 缩略图条的排布
+ * 当前帧按原尺寸显示，两侧缩略图缩小后并排摆放；
+ * 宽度不足时先缩小当前帧，仍不够则三张图一起等比缩小，保证都留在缩略图条内
  */
-function stripOffset(frames, center) {
-    const stripWidth = strip.getBoundingClientRect().width;
-    const itemWidth = stripItemWidth();
-    if (stripWidth <= 0 || itemWidth <= 0) {
-        return STRIP_MAX_OFFSET;
+function stripLayout() {
+    const style = getComputedStyle(strip);
+    const usable = strip.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+    const baseWidth = stripItemWidth();
+    const baseHeight = stripItemHeight();
+    if (usable <= 0 || baseWidth <= 0) {
+        return {currentWidth: 300, currentHeight: 169, sideWidth: 180, sideHeight: 101};
     }
-    // 当前帧两侧最远的缩略图到中心的距离（两侧可能不对称）
-    const reach = Math.max(...frames.map((frame, index) => Math.abs(index - center)));
-    if (reach === 0) {
-        return STRIP_MAX_OFFSET;
+    const gap = 12;
+    const minSide = 140;
+    const maxRatio = 0.75;
+    // 当前帧优先保持原尺寸
+    let currentWidth = Math.min(baseWidth, usable - minSide * 2 - gap * 2);
+    if (currentWidth < minSide) {
+        // 宽度实在不够时三张图一起等比缩小
+        const total = baseWidth * (1 + 2 * maxRatio) + gap * 2;
+        currentWidth = Math.floor(baseWidth * (usable / total));
     }
-    // 最外侧缩略图缩放后约占位宽的六成，其半宽决定中心到边缘的可用空间
-    const scale = Math.max(0.5, 1 - reach * 0.1);
-    const edgeHalfWidth = itemWidth * scale / 2;
-    const available = stripWidth / 2 - edgeHalfWidth;
-    return Math.max(STRIP_MIN_OFFSET, Math.min(STRIP_MAX_OFFSET, available / reach));
+    currentWidth = Math.max(1, currentWidth);
+    const currentHeight = Math.max(1, Math.floor(currentWidth * baseHeight / baseWidth));
+    // 剩余空间分给两侧缩略图
+    const room = usable - currentWidth - gap * 2;
+    const sideWidth = Math.max(1, Math.min(Math.floor(currentWidth * maxRatio), Math.floor(room / 2)));
+    const sideHeight = Math.max(1, Math.floor(currentHeight * sideWidth / currentWidth));
+    return {currentWidth, currentHeight, sideWidth, sideHeight};
+}
+
+/**
+ * 单张缩略图未缩放时的高度
+ */
+function stripItemHeight() {
+    return parseFloat(getComputedStyle(document.documentElement)
+        .getPropertyValue('--clip-strip-item-height')) || 240;
 }
 
 /**
@@ -855,10 +944,9 @@ function stripOffset(frames, center) {
  * 视频信息尚未就绪时退回实测值
  */
 function stripItemWidth() {
-    const cssHeight = parseFloat(getComputedStyle(document.documentElement)
-        .getPropertyValue('--clip-strip-item-height')) || 240;
+    const height = stripItemHeight();
     if (video.videoWidth > 0 && video.videoHeight > 0) {
-        return cssHeight * (video.videoWidth / video.videoHeight);
+        return height * (video.videoWidth / video.videoHeight);
     }
     const current = strip.querySelector('.clip-strip-item.current img');
     return current ? current.getBoundingClientRect().width : 0;
