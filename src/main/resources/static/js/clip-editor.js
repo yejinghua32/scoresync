@@ -13,6 +13,7 @@ import {api, escapeHtml} from './api.js';
  * 暂选只存在于前端内存，按 Enter 或切换类型时才持久化
  * 视频下方的保留帧时间轴按成片时间定位，播放时只走保留片段
  * 播放期间当前帧缩略图不跟随，暂停后再补到当前位置
+ * 点击已存档片段循环播放该片段；暂选未存档时加减帧会循环播放当前帧之前的 1 秒
  */
 
 /** 左右两侧显示的帧偏移：当前帧的前/后第 3 帧 */
@@ -77,6 +78,10 @@ let renderPollTimer = null;
 let seekRestoreFrame = null;
 /** 用户是否手动定位过视频，手动定位期间跳播预览让位 */
 let manualPosition = false;
+/** 循环预览的源视频区间 {startMs, endMs}，非空时只在这一段内循环播放 */
+let loopRange = null;
+/** 循环边界的检查定时器 */
+let loopTimer = null;
 
 const video = document.getElementById('clip-video');
 const timeline = document.getElementById('clip-timeline');
@@ -110,8 +115,10 @@ function bindEvents() {
     video.addEventListener('seeked', onSeeked);
     // 播放期间当前帧缩略图不跟随：开始播放时定格在起播帧并停掉轮播
     video.addEventListener('play', refreshStrip);
-    // 暂停后把当前帧缩略图补到最新位置
-    video.addEventListener('pause', refreshStrip);
+    // 暂停后把当前帧缩略图补到最新位置，循环预览随之结束
+    video.addEventListener('pause', onPlaybackPaused);
+    // 用户把播放位置拖出循环区间时结束循环预览
+    video.addEventListener('seeking', onVideoSeeking);
     // 视频尺寸就绪后按真实比例重排缩略图条
     video.addEventListener('loadedmetadata', renderStrip);
     window.addEventListener('resize', () => {
@@ -304,7 +311,11 @@ async function stepSelection(type) {
     if (totalFrames <= 0 || archiveInFlight) {
         return;
     }
+    clearLoop();
+    let startFrame = cursor;
     if (pending && pending.type !== type) {
+        // 切换类型前先存档，新暂选紧接着上一段的终点，播放位置可能已经偏移
+        startFrame = pending.end;
         const saved = await archivePending('已自动存档上一段暂选');
         if (!saved) {
             // 存档失败时保留暂选，避免丢帧
@@ -312,6 +323,7 @@ async function stepSelection(type) {
         }
     }
     if (!pending) {
+        cursor = Math.min(totalFrames, Math.max(0, startFrame));
         pending = {start: cursor, end: cursor, type};
     } else {
         pending.type = type;
@@ -337,8 +349,9 @@ function extendPending(step) {
     cursor = pending.end;
     renderPending();
     updateFrameInfo();
-    seekVideoToFrame(cursor);
     refreshStrip();
+    // 暂选尚未存档时，循环预览当前帧之前的 1 秒
+    loopLastSecond(cursor);
 }
 
 /**
@@ -356,8 +369,11 @@ function shrinkPending(step) {
     }
     renderPending();
     updateFrameInfo();
-    seekVideoToFrame(cursor);
     refreshStrip();
+    // 暂选尚未存档时，循环预览当前帧之前的 1 秒
+    if (pending) {
+        loopLastSecond(cursor);
+    }
 }
 
 /**
@@ -383,6 +399,7 @@ function moveCursorTo(frame) {
     if (totalFrames <= 0) {
         return;
     }
+    clearLoop();
     const target = Math.min(totalFrames - 1, Math.max(0, frame));
     cursor = target;
     seekVideoToFrame(target);
@@ -422,6 +439,7 @@ async function commitPending() {
         showToast('没有可存档的暂选', 'warning');
         return;
     }
+    clearLoop();
     await archivePending('片段已存档');
 }
 
@@ -482,6 +500,97 @@ function togglePlay() {
 }
 
 /**
+ * 暂停：结束循环预览，并把当前帧缩略图补到暂停位置
+ */
+function onPlaybackPaused() {
+    clearLoop();
+    refreshStrip();
+}
+
+/**
+ * 用户把播放位置拖出循环区间时结束循环预览
+ * 循环自身的起终点跳转都落在区间内，不会被误判
+ */
+function onVideoSeeking() {
+    if (!loopRange) {
+        return;
+    }
+    const currentMs = video.currentTime * 1000;
+    if (currentMs < loopRange.startMs - 250 || currentMs > loopRange.endMs + 250) {
+        clearLoop();
+    }
+}
+
+/**
+ * 循环播放源视频的一段区间
+ * 已存档片段预览与暂选的 1 秒预览都走这里
+ */
+function playLoop(startFrame, endFrame) {
+    if (!totalFrames || endFrame <= startFrame) {
+        return;
+    }
+    const start = Math.max(0, Math.min(totalFrames - 1, startFrame));
+    const end = Math.min(totalFrames, Math.max(start + 1, endFrame));
+    loopRange = {
+        startMs: frameTimeMs(start),
+        endMs: frameTimeMs(start) + frameRangeMs(start, end)
+    };
+    cursor = start;
+    seekVideoToFrame(start);
+    manualPosition = false;
+    updateFrameInfo();
+    refreshStrip();
+    // 浏览器拒绝播放时不再保留循环区间，避免之后点播放被限制在这一段
+    video.play().catch(() => clearLoop());
+    startLoopTimer();
+}
+
+/**
+ * 循环播放当前帧之前的 1 秒，用于确认暂选边界
+ */
+function loopLastSecond(frame) {
+    if (!totalFrames) {
+        return;
+    }
+    const anchor = Math.max(0, Math.min(totalFrames - 1, frame));
+    const endFrame = Math.min(totalFrames, anchor + 1);
+    const endMs = frameTimeMs(anchor) + frameRangeMs(anchor, endFrame);
+    playLoop(nearestFrame(Math.max(0, endMs - 1000)), endFrame);
+}
+
+function startLoopTimer() {
+    stopLoopTimer();
+    loopTimer = setInterval(checkLoopBoundary, 50);
+}
+
+function stopLoopTimer() {
+    if (loopTimer) {
+        clearInterval(loopTimer);
+        loopTimer = null;
+    }
+}
+
+/**
+ * 结束循环预览
+ */
+function clearLoop() {
+    loopRange = null;
+    stopLoopTimer();
+}
+
+/**
+ * 播到区间末尾时跳回起点
+ */
+function checkLoopBoundary() {
+    if (!loopRange || video.paused) {
+        return;
+    }
+    if (video.currentTime * 1000 >= loopRange.endMs) {
+        video.currentTime = loopRange.startMs / 1000;
+    }
+}
+
+/**
  * 点击时间轴跳到任意源帧
  */
 function onTimelineClick(e) {
@@ -497,8 +606,8 @@ function onTimelineClick(e) {
 }
 
 /**
- * 点击已存档片段：定位到该片段的最后一帧
- * 片段是半开区间 [startFrame, endFrame)，最后一帧为 endFrame - 1
+ * 点击已存档片段：循环播放该片段
+ * 片段是半开区间 [startFrame, endFrame)
  */
 function onSegmentClick(e) {
     const removeButton = e.target.closest('.clip-segment-delete');
@@ -516,8 +625,8 @@ function onSegmentClick(e) {
         return;
     }
     pending = null;
-    moveCursorTo(Math.max(start, end - 1));
     renderPending();
+    playLoop(start, end);
 }
 
 /**
@@ -535,6 +644,7 @@ async function deleteSegment(segmentId) {
     if (!confirm(`确定删除片段「${segment.startFrame} - ${segment.endFrame}」吗？该区间的帧会回到未标记状态。`)) {
         return;
     }
+    clearLoop();
     try {
         const updated = await api(`/api/clip-projects/${project.id}/segments/${segmentId}`, {method: 'DELETE'});
         segments = updated.segments || [];
@@ -579,6 +689,10 @@ function onTimeUpdate() {
  */
 function enforceKeepPlayback() {
     if (video.paused) {
+        return;
+    }
+    if (loopRange) {
+        // 正在循环预览某一段，跳播预览让位
         return;
     }
     if (manualPosition) {
@@ -771,6 +885,7 @@ function onKeepTimelineClick(e) {
     const sourceMs = frameTimeMs(target.startFrame) + Math.max(0, remaining);
     const frame = Math.min(target.endFrame - 1,
         Math.max(target.startFrame, nearestFrame(sourceMs)));
+    clearLoop();
     pending = null;
     renderPending();
     cursor = frame;
@@ -883,7 +998,7 @@ function renderSegmentList() {
     list.innerHTML = segments.map(segment => `
     <div class="clip-segment-item ${segment.type === 'KEEP' ? 'keep' : 'drop'}"
          data-id="${segment.id}" data-start="${segment.startFrame}" data-end="${segment.endFrame}"
-         title="点击定位到该片段的最后一帧">
+         title="点击循环播放该片段">
       <span class="clip-segment-type">${segment.type === 'KEEP' ? '保留' : '舍弃'}</span>
       <span class="clip-segment-range">${segment.startFrame} - ${segment.endFrame}</span>
       <span class="clip-segment-count">${segment.endFrame - segment.startFrame} 帧 / ${formatDuration(frameRangeMs(segment.startFrame, segment.endFrame))}</span>
