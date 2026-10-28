@@ -417,6 +417,31 @@ async function deleteVideo(event, id) {
     }
 }
 
+/**
+ * 清空视频库
+ * 仍在项目中使用中的视频不会被移除，会在提示中列出
+ */
+async function deleteAllVideos() {
+    if (!assets.length) {
+        showToast('视频库已经是空的', 'warning');
+        return;
+    }
+    if (!confirm(`确定清空视频库吗？\n\n共 ${assets.length} 个视频，仅移除登记信息，不会删除磁盘上的文件；重新扫描目录后仍会再次登记。`)) return;
+    try {
+        const result = await api('/api/videos', {method: 'DELETE'});
+        assets = await api('/api/videos') || [];
+        renderVideos();
+        const skipped = (result && result.skipped) || [];
+        if (skipped.length) {
+            showToast(`已移除 ${result.deleted} 个视频，${skipped.length} 个仍在使用中：${skipped.join('、')}`, 'warning');
+        } else {
+            showToast(`已清空视频库，移除 ${result.deleted} 个视频`, 'success');
+        }
+    } catch (e) {
+        showToast(e.message, 'error');
+    }
+}
+
 async function exportProjectBackup(event, id) {
     if (event) event.stopPropagation();
     try {
@@ -561,8 +586,8 @@ function renderVideos() {
         const canCreate = a.readable !== false;
         const rowClass = canCreate ? 'clickable' : 'unavailable';
         const actionBtn = canCreate
-            ? `<button onclick="openCreateModal(${a.id})">创建项目</button>
-               <button class="secondary" onclick="openClipModal(event, ${a.id})">剪辑</button>`
+            ? `<button onclick="openCreateModal(${a.id})">编辑比分</button>
+               <button class="secondary" onclick="openClipModal(event, ${a.id})">开始剪辑</button>`
             : `<span class="badge">不可读</span>`;
         return `<tr class="${rowClass}" ${canCreate ? `onclick="openCreateModal(${a.id})"` : ''}>
       <td class="name" title="${escapeHtml(a.displayName)}">${escapeHtml(a.displayName)}</td>
@@ -915,8 +940,10 @@ window.openClipModal = openClipModal;
 window.openProject = openProject;
 window.deleteProject = deleteProject;
 window.deleteVideo = deleteVideo;
+window.deleteAllVideos = deleteAllVideos;
 window.exportProjectBackup = exportProjectBackup;
 window.editTemplate = editTemplate;
 window.deleteTemplate = deleteTemplate;
 
 document.getElementById('clip-project-form').addEventListener('submit', createClipProject);
+document.getElementById('delete-all-videos').addEventListener('click', deleteAllVideos);

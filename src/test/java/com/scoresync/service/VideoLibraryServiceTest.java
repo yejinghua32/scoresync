@@ -3,6 +3,7 @@ package com.scoresync.service;
 import com.scoresync.domain.PlayerSide;
 import com.scoresync.domain.ScoreboardTemplate;
 import com.scoresync.domain.VideoAsset;
+import com.scoresync.domain.VideoBulkDeleteResult;
 import com.scoresync.repository.ClipProjectRepository;
 import com.scoresync.repository.MatchProjectRepository;
 import com.scoresync.repository.VideoAssetRepository;
@@ -150,6 +151,52 @@ class VideoLibraryServiceTest {
 
         assertThat(assetRepo.findAll()).isEmpty();
         assertThat(videoFile).exists();
+    }
+
+    @Test
+    void removeAllAssetsDropsEveryUnusedRegistration(@TempDir Path tempDir) throws IOException {
+        Path sourceDir = tempDir.resolve("source_remove_all");
+        Files.createDirectory(sourceDir);
+        Path first = sourceDir.resolve("a.mp4");
+        Path second = sourceDir.resolve("b.mp4");
+        Files.createFile(first);
+        Files.createFile(second);
+
+        long sourceId = library.addSource(sourceDir.toString()).id();
+        library.scan(sourceId);
+        assertThat(assetRepo.findAll()).hasSize(2);
+
+        VideoBulkDeleteResult result = library.removeAllAssets();
+
+        assertThat(result.deleted()).isEqualTo(2);
+        assertThat(result.skipped()).isEmpty();
+        assertThat(assetRepo.findAll()).isEmpty();
+        // 只移除登记信息，磁盘文件保持不变
+        assertThat(first).exists();
+        assertThat(second).exists();
+    }
+
+    @Test
+    void removeAllAssetsKeepsVideosStillUsedByProject(@TempDir Path tempDir) throws IOException {
+        Path sourceDir = tempDir.resolve("source_remove_all_used");
+        Files.createDirectory(sourceDir);
+        Files.createFile(sourceDir.resolve("used.mp4"));
+        Files.createFile(sourceDir.resolve("free.mp4"));
+
+        long sourceId = library.addSource(sourceDir.toString()).id();
+        List<VideoAsset> assets = library.scan(sourceId);
+        VideoAsset used = assets.stream()
+                .filter(asset -> "used.mp4".equals(asset.displayName()))
+                .findFirst()
+                .orElseThrow();
+        projectRepo.insert("决赛", used.id(), 60_000L, "甲", "乙", 2,
+                ScoreboardTemplate.CLASSIC, PlayerSide.A);
+
+        VideoBulkDeleteResult result = library.removeAllAssets();
+
+        assertThat(result.deleted()).isEqualTo(1);
+        assertThat(result.skipped()).containsExactly("used.mp4");
+        assertThat(assetRepo.findAll()).extracting(VideoAsset::displayName).containsExactly("used.mp4");
     }
 
     @Test

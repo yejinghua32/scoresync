@@ -6,6 +6,7 @@ package com.scoresync.web;
  */
 
 import com.scoresync.domain.VideoAsset;
+import com.scoresync.domain.VideoBulkDeleteResult;
 import com.scoresync.domain.VideoSource;
 import com.scoresync.service.NativeFilePickerService;
 import com.scoresync.service.VideoLibraryService;
@@ -80,6 +81,15 @@ public class VideoSourceController {
     public ResponseEntity<Void> removeVideo(@PathVariable long id) {
         videoLibraryService.removeAsset(id);
         return ResponseEntity.noContent().build();
+    }
+
+    /**
+     * 清空视频库
+     * 仍在项目中使用中的视频不会被移除，会在结果中列出
+     */
+    @DeleteMapping("/videos")
+    public VideoBulkDeleteResult removeAllVideos() {
+        return videoLibraryService.removeAllAssets();
     }
 
     /**

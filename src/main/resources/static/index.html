@@ -13,10 +13,6 @@
         <h1 class="logo">比赛视频比分编辑器</h1>
     </div>
     <ul class="nav-menu">
-        <li class="nav-item active" data-view="projects">
-            <span class="nav-icon">📁</span>
-            <span>比分项目</span>
-        </li>
         <li class="nav-item" data-view="videos">
             <span class="nav-icon">🎬</span>
             <span>视频库</span>
@@ -24,6 +20,10 @@
         <li class="nav-item" data-view="clips">
             <span class="nav-icon">✂️</span>
             <span>剪辑项目</span>
+        </li>
+        <li class="nav-item active" data-view="projects">
+            <span class="nav-icon">📁</span>
+            <span>比分项目</span>
         </li>
         <li class="nav-item" data-view="settings">
             <span class="nav-icon">⚙️</span>
@@ -85,7 +85,10 @@
             <div id="source-list"></div>
         </div>
         <div class="card">
-            <div class="card-title">视频列表 <span id="video-count" class="count-badge">0</span></div>
+            <div class="card-title card-title-row">
+                <span>视频列表 <span id="video-count" class="count-badge">0</span></span>
+                <button id="delete-all-videos" class="secondary">全部删除</button>
+            </div>
             <table class="video-table">
                 <thead>
                 <tr>
@@ -145,7 +148,7 @@
 
 <div id="project-modal" class="modal-overlay hidden">
     <div class="modal">
-        <h2>创建项目</h2>
+        <h2>编辑比分</h2>
         <form id="project-form">
             <input type="hidden" id="project-video-id">
             <input type="hidden" id="project-duration-ms">

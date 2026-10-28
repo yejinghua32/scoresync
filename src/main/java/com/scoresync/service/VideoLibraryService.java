@@ -1,6 +1,7 @@
 package com.scoresync.service;
 
 import com.scoresync.domain.VideoAsset;
+import com.scoresync.domain.VideoBulkDeleteResult;
 import com.scoresync.domain.VideoOriginType;
 import com.scoresync.domain.VideoSource;
 import com.scoresync.repository.ClipProjectRepository;
@@ -162,6 +163,27 @@ public class VideoLibraryService {
             throw new VideoInUseException("VIDEO_IN_USE", "该视频正被 " + total + " 个项目使用，无法移除");
         }
         assetRepo.delete(assetId);
+    }
+
+    /**
+     * 清空视频库
+     * 只删除登记记录，磁盘上的文件保持不变；重新扫描目录后仍会再次登记。
+     * 仍被项目引用的视频会被跳过，并在结果中列出。
+     *
+     * @return 删除数量与被跳过的视频名称
+     */
+    public VideoBulkDeleteResult removeAllAssets() {
+        List<String> skipped = new ArrayList<>();
+        int deleted = 0;
+        for (VideoAsset asset : assetRepo.findAll()) {
+            try {
+                removeAsset(asset.id());
+                deleted++;
+            } catch (VideoInUseException e) {
+                skipped.add(asset.displayName());
+            }
+        }
+        return new VideoBulkDeleteResult(deleted, skipped);
     }
 
     /**

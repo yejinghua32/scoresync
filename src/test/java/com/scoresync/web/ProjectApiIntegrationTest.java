@@ -184,6 +184,22 @@ class ProjectApiIntegrationTest {
     }
 
     @Test
+    void removeAllVideos_shouldDropUnusedAndReportSkipped() throws Exception {
+        VideoSource source = sources.insert("/videos");
+        long usedId = assets.insert(source.id(), "/videos/used.mp4", "使用中.mp4", 1024L, System.currentTimeMillis(), VideoOriginType.SCANNED);
+        assets.insert(source.id(), "/videos/free.mp4", "空闲.mp4", 1024L, System.currentTimeMillis(), VideoOriginType.SCANNED);
+        projects.insert("决赛", usedId, 60000L, "甲", "乙", 2, ScoreboardTemplate.CLASSIC, com.scoresync.domain.PlayerSide.A);
+
+        mockMvc.perform(delete("/api/videos"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.deleted").value(1))
+                .andExpect(jsonPath("$.skipped.length()").value(1))
+                .andExpect(jsonPath("$.skipped[0]").value("使用中.mp4"));
+
+        assertThat(assets.findAll()).extracting(VideoAsset::displayName).containsExactly("使用中.mp4");
+    }
+
+    @Test
     void streamMedia_withRangeHeader_shouldReturnPartialContent() throws Exception {
         Path videoFile = Files.createTempFile("test-video", ".mp4");
         Files.writeString(videoFile, "0123456789");
