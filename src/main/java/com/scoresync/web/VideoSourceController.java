@@ -11,6 +11,7 @@ import com.scoresync.domain.VideoSource;
 import com.scoresync.service.NativeFilePickerService;
 import com.scoresync.service.VideoLibraryService;
 import com.scoresync.web.dto.CreateVideoSourceRequest;
+import com.scoresync.web.dto.PageResponse;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -58,11 +59,14 @@ public class VideoSourceController {
     }
 
     /**
-     * 获取所有已登记的视频文件
+     * 获取已登记的视频文件
+     * 支持分页与按文件名搜索
      */
     @GetMapping("/videos")
-    public List<VideoAsset> listAssets() {
-        return videoLibraryService.listAssets();
+    public PageResponse<VideoAsset> listAssets(@RequestParam(defaultValue = "0") int page,
+                                            @RequestParam(defaultValue = "10") int size,
+                                            @RequestParam(required = false) String search) {
+        return videoLibraryService.listAssetsPage(page, size, search);
     }
 
     /**

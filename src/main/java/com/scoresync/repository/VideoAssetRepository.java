@@ -73,6 +73,39 @@ public class VideoAssetRepository {
         return jdbc.query("SELECT * FROM video_asset", ROW_MAPPER);
     }
 
+    /**
+     * 分页查询视频资产
+     * 按登记顺序倒序（主键自增，与扫描登记顺序一致），可按文件名过滤
+     *
+     * @param offset 起始偏移
+     * @param limit  返回数量上限
+     * @param search 文件名关键字，为空时不过滤
+     */
+    public List<VideoAsset> findPage(int offset, int limit, String search) {
+        if (search == null || search.isBlank()) {
+            return jdbc.query("SELECT * FROM video_asset ORDER BY id DESC LIMIT ? OFFSET ?",
+                    ROW_MAPPER, limit, offset);
+        }
+        return jdbc.query("SELECT * FROM video_asset WHERE display_name LIKE ? ORDER BY id DESC LIMIT ? OFFSET ?",
+                ROW_MAPPER, "%" + search.trim() + "%", limit, offset);
+    }
+
+    /**
+     * 统计视频资产数量
+     *
+     * @param search 文件名关键字，为空时统计全部
+     */
+    public int count(String search) {
+        Integer count;
+        if (search == null || search.isBlank()) {
+            count = jdbc.queryForObject("SELECT COUNT(*) FROM video_asset", Integer.class);
+        } else {
+            count = jdbc.queryForObject("SELECT COUNT(*) FROM video_asset WHERE display_name LIKE ?",
+                    Integer.class, "%" + search.trim() + "%");
+        }
+        return count == null ? 0 : count;
+    }
+
     public int update(VideoAsset asset) {
         return jdbc.update("""
                         UPDATE video_asset SET source_id = ?, absolute_path = ?, display_name = ?,

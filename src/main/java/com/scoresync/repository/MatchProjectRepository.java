@@ -84,6 +84,45 @@ public class MatchProjectRepository {
     }
 
     /**
+     * 分页查询比赛项目，可按名称与选手名过滤
+     *
+     * @param offset 起始偏移
+     * @param limit  返回数量上限
+     * @param search 关键字，为空时不过滤
+     * @return 比赛项目列表
+     */
+    public List<MatchProject> findAll(int offset, int limit, String search) {
+        if (search == null || search.isBlank()) {
+            return findAll(offset, limit);
+        }
+        String like = "%" + search.trim() + "%";
+        return jdbc.query("""
+                SELECT * FROM match_project
+                WHERE name LIKE ? OR player_a LIKE ? OR player_b LIKE ?
+                ORDER BY id DESC LIMIT ? OFFSET ?""",
+                ROW_MAPPER, like, like, like, limit, offset);
+    }
+
+    /**
+     * 统计比赛项目数量
+     *
+     * @param search 关键字，为空时统计全部
+     */
+    public int count(String search) {
+        Integer count;
+        if (search == null || search.isBlank()) {
+            count = jdbc.queryForObject("SELECT COUNT(*) FROM match_project", Integer.class);
+        } else {
+            String like = "%" + search.trim() + "%";
+            count = jdbc.queryForObject("""
+                    SELECT COUNT(*) FROM match_project
+                    WHERE name LIKE ? OR player_a LIKE ? OR player_b LIKE ?""",
+                    Integer.class, like, like, like);
+        }
+        return count == null ? 0 : count;
+    }
+
+    /**
      * 统计引用指定视频资产的比赛项目数量
      *
      * @param videoAssetId 视频资产ID

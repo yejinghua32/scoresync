@@ -8,6 +8,7 @@ import com.scoresync.repository.VideoAssetRepository;
 import com.scoresync.support.DomainNotFoundException;
 import com.scoresync.support.DomainValidationException;
 import com.scoresync.support.RenderJobConflictException;
+import com.scoresync.web.dto.PageRequest;
 import com.scoresync.web.dto.PageResponse;
 import com.scoresync.web.dto.ProjectSummary;
 import org.springframework.stereotype.Service;
@@ -82,17 +83,15 @@ public class ProjectService {
 
     /**
      * 分页列出所有项目摘要
+     * 可按项目名称与选手名称过滤
      */
-    public PageResponse<ProjectSummary> list(int page, int size) {
-        int normalizedPage = Math.max(0, page);
-        int normalizedSize = size <= 0 ? 10 : Math.min(size, 100);
-        int total = projectRepository.count();
-        int totalPages = total == 0 ? 0 : (int) Math.ceil((double) total / normalizedSize);
-        if (normalizedPage >= totalPages && totalPages > 0) {
-            normalizedPage = totalPages - 1;
-        }
-        int offset = normalizedPage * normalizedSize;
-        List<ProjectSummary> items = projectRepository.findAll(offset, normalizedSize).stream()
+    public PageResponse<ProjectSummary> list(int page, int size, String search) {
+        PageRequest request = new PageRequest(page, size);
+        int total = projectRepository.count(search);
+        int totalPages = request.totalPages(total);
+        int currentPage = request.page() >= totalPages && totalPages > 0 ? totalPages - 1 : request.page();
+        List<ProjectSummary> items = projectRepository.findAll(currentPage * request.size(), request.size(), search)
+                .stream()
                 .map(p -> {
                     String videoName;
                     try {
@@ -104,7 +103,7 @@ public class ProjectService {
                             p.targetWins(), p.videoAssetId(), videoName, p.createdAt(), p.updatedAt());
                 })
                 .toList();
-        return new PageResponse<>(items, normalizedPage, normalizedSize, total, totalPages);
+        return new PageResponse<>(items, currentPage, request.size(), total, totalPages);
     }
 
     /**

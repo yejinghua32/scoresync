@@ -11,6 +11,8 @@ import com.scoresync.repository.ClipProjectRepository;
 import com.scoresync.repository.ClipSegmentRepository;
 import com.scoresync.support.DomainNotFoundException;
 import com.scoresync.support.DomainValidationException;
+import com.scoresync.web.dto.PageRequest;
+import com.scoresync.web.dto.PageResponse;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -75,6 +77,26 @@ public class ClipProjectService {
      */
     public List<ClipProjectDetail> list() {
         return projectRepository.findAll().stream().map(project -> detail(project.id())).toList();
+    }
+
+    /**
+     * 分页列出剪辑项目
+     * 可按项目名称或所属视频名称过滤
+     *
+     * @param page   页码，从 0 开始
+     * @param size   每页数量
+     * @param search 关键字，为空时不过滤
+     */
+    public PageResponse<ClipProjectDetail> listPage(int page, int size, String search) {
+        PageRequest request = new PageRequest(page, size);
+        int total = projectRepository.count(search);
+        int totalPages = request.totalPages(total);
+        int currentPage = request.page() >= totalPages && totalPages > 0 ? totalPages - 1 : request.page();
+        List<ClipProjectDetail> items = projectRepository.findPage(currentPage * request.size(), request.size(), search)
+                .stream()
+                .map(project -> detail(project.id()))
+                .toList();
+        return new PageResponse<>(items, currentPage, request.size(), total, totalPages);
     }
 
     /**

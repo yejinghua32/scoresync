@@ -12,6 +12,8 @@ import com.scoresync.support.DomainNotFoundException;
 import com.scoresync.support.DomainValidationException;
 import com.scoresync.support.MediaUnavailableException;
 import com.scoresync.support.VideoInUseException;
+import com.scoresync.web.dto.PageRequest;
+import com.scoresync.web.dto.PageResponse;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -131,6 +133,23 @@ public class VideoLibraryService {
      */
     public List<VideoAsset> listAssets() {
         return assetRepo.findAll();
+    }
+
+    /**
+     * 分页列出视频资产
+     * 可按文件名过滤，按登记顺序倒序
+     *
+     * @param page   页码，从 0 开始
+     * @param size   每页数量
+     * @param search 文件名关键字，为空时不过滤
+     */
+    public PageResponse<VideoAsset> listAssetsPage(int page, int size, String search) {
+        PageRequest request = new PageRequest(page, size);
+        int total = assetRepo.count(search);
+        int totalPages = request.totalPages(total);
+        int currentPage = request.page() >= totalPages && totalPages > 0 ? totalPages - 1 : request.page();
+        List<VideoAsset> items = assetRepo.findPage(currentPage * request.size(), request.size(), search);
+        return new PageResponse<>(items, currentPage, request.size(), total, totalPages);
     }
 
     /**

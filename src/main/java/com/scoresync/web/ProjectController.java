@@ -43,8 +43,9 @@ public class ProjectController {
      */
     @GetMapping("/projects")
     public PageResponse<ProjectSummary> listProjects(@RequestParam(defaultValue = "0") int page,
-                                                     @RequestParam(defaultValue = "10") int size) {
-        return projectService.list(page, size);
+                                                     @RequestParam(defaultValue = "10") int size,
+                                                     @RequestParam(required = false) String search) {
+        return projectService.list(page, size, search);
     }
 
     /**

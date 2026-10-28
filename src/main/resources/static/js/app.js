@@ -3,11 +3,11 @@ import {api, escapeHtml} from './api.js';
 let sources = [];
 let assets = [];
 let projectPage = {page: 0, size: 10, total: 0, totalPages: 0, items: []};
+let videoPage = {page: 0, size: 10, total: 0, totalPages: 0};
+let clipProjectPage = {page: 0, size: 10, total: 0, totalPages: 0};
 let teamMembers = [];
 let templates = [];
 let clipProjects = [];
-/** 剪辑项目搜索关键字 */
-let clipProjectSearch = '';
 
 document.addEventListener('DOMContentLoaded', async () => {
     initNavigation();
@@ -30,9 +30,17 @@ document.addEventListener('DOMContentLoaded', async () => {
  */
 async function loadClipProjects() {
     try {
-        clipProjects = await api('/api/clip-projects') || [];
+        const search = document.getElementById('clip-project-search')?.value?.trim() || '';
+        const params = new URLSearchParams({page: clipProjectPage.page, size: clipProjectPage.size});
+        if (search) {
+            params.set('search', search);
+        }
+        const data = await api(`/api/clip-projects?${params}`);
+        clipProjects = data.items || [];
+        clipProjectPage = {page: data.page, size: data.size, total: data.total, totalPages: data.totalPages};
     } catch (e) {
         clipProjects = [];
+        showToast(e.message, 'error');
     }
 }
 
@@ -45,31 +53,47 @@ function renderClipProjects() {
     if (!tbody) {
         return;
     }
-    const keyword = clipProjectSearch.trim().toLowerCase();
-    const visible = keyword
-        ? clipProjects.filter(p => (p.name || '').toLowerCase().includes(keyword)
-            || (p.videoName || '').toLowerCase().includes(keyword))
-        : clipProjects;
-    document.getElementById('clip-project-count').textContent = visible.length;
-    if (visible.length === 0) {
+    document.getElementById('clip-project-count').textContent = clipProjectPage.total;
+    if (clipProjects.length === 0) {
+        const keyword = document.getElementById('clip-project-search')?.value?.trim();
         tbody.innerHTML = `<tr><td colspan="5" style="text-align:center;color:var(--text-dim)">${keyword ? '没有匹配的剪辑项目' : '暂无剪辑项目'}</td></tr>`;
-        return;
-    }
-    tbody.innerHTML = visible.map(p => {
-        const created = p.createdAt ? new Date(p.createdAt).toLocaleString('zh-CN') : '-';
-        return `<tr class="clickable" onclick="openClipProject(${p.id})">
+    } else {
+        tbody.innerHTML = clipProjects.map(p => {
+            const created = p.createdAt ? new Date(p.createdAt).toLocaleString('zh-CN') : '-';
+            return `<tr class="clickable" onclick="openClipProject(${p.id})">
       <td class="name" title="${escapeHtml(p.name)}">${escapeHtml(p.name)}</td>
       <td class="size">${escapeHtml(p.videoName || '-')}</td>
       <td class="source">${p.largeStep}/${p.smallStep}</td>
       <td class="time">${created}</td>
       <td class="actions"><button class="danger delete-btn" onclick="deleteClipProject(event, ${p.id})">删除</button></td>
     </tr>`;
-    }).join('');
+        }).join('');
+    }
+    const pager = document.getElementById('clip-project-pager');
+    pager.classList.toggle('hidden', clipProjectPage.totalPages <= 1);
+    document.getElementById('clip-project-prev').disabled = clipProjectPage.page <= 0;
+    document.getElementById('clip-project-next').disabled = clipProjectPage.page >= clipProjectPage.totalPages - 1;
+    document.getElementById('clip-project-page-info').textContent =
+        `第 ${clipProjectPage.page + 1} / ${Math.max(clipProjectPage.totalPages, 1)} 页`;
 }
 
-document.getElementById('clip-project-search').addEventListener('input', (event) => {
-    clipProjectSearch = event.target.value;
-    renderClipProjects();
+document.getElementById('clip-project-search').addEventListener('input', () => {
+    clipProjectPage.page = 0;
+    loadClipProjects().then(renderClipProjects);
+});
+
+document.getElementById('clip-project-prev').addEventListener('click', () => {
+    if (clipProjectPage.page > 0) {
+        clipProjectPage.page--;
+        loadClipProjects().then(renderClipProjects);
+    }
+});
+
+document.getElementById('clip-project-next').addEventListener('click', () => {
+    if (clipProjectPage.page < clipProjectPage.totalPages - 1) {
+        clipProjectPage.page++;
+        loadClipProjects().then(renderClipProjects);
+    }
 });
 
 function openClipProject(id) {
@@ -409,7 +433,7 @@ async function deleteVideo(event, id) {
     if (!confirm(`确定从视频库移除「${name}」吗？\n\n仅移除登记信息，不会删除磁盘上的文件；重新扫描该目录后仍会再次登记。`)) return;
     try {
         await api(`/api/videos/${id}`, {method: 'DELETE'});
-        assets = await api('/api/videos') || [];
+        await loadVideos();
         renderVideos();
         showToast('已从视频库移除', 'success');
     } catch (e) {
@@ -426,10 +450,10 @@ async function deleteAllVideos() {
         showToast('视频库已经是空的', 'warning');
         return;
     }
-    if (!confirm(`确定清空视频库吗？\n\n共 ${assets.length} 个视频，仅移除登记信息，不会删除磁盘上的文件；重新扫描目录后仍会再次登记。`)) return;
+    if (!confirm(`确定清空视频库吗？\n\n共 ${videoPage.total} 个视频，仅移除登记信息，不会删除磁盘上的文件；重新扫描目录后仍会再次登记。`)) return;
     try {
         const result = await api('/api/videos', {method: 'DELETE'});
-        assets = await api('/api/videos') || [];
+        await loadVideos();
         renderVideos();
         const skipped = (result && result.skipped) || [];
         if (skipped.length) {
@@ -475,11 +499,38 @@ async function loadSources() {
 
 async function loadVideos() {
     try {
-        assets = await api('/api/videos') || [];
-        renderVideos();
+        const search = document.getElementById('video-search')?.value?.trim() || '';
+        const params = new URLSearchParams({page: videoPage.page, size: videoPage.size});
+        if (search) {
+            params.set('search', search);
+        }
+        const data = await api(`/api/videos?${params}`);
+        assets = data.items || [];
+        videoPage = {page: data.page, size: data.size, total: data.total, totalPages: data.totalPages};
     } catch (e) {
+        assets = [];
+        showToast(e.message, 'error');
     }
 }
+
+document.getElementById('video-search').addEventListener('input', () => {
+    videoPage.page = 0;
+    loadVideos().then(renderVideos);
+});
+
+document.getElementById('video-prev').addEventListener('click', () => {
+    if (videoPage.page > 0) {
+        videoPage.page--;
+        loadVideos().then(renderVideos);
+    }
+});
+
+document.getElementById('video-next').addEventListener('click', () => {
+    if (videoPage.page < videoPage.totalPages - 1) {
+        videoPage.page++;
+        loadVideos().then(renderVideos);
+    }
+});
 
 document.getElementById('add-source').addEventListener('click', async () => {
     const pathInput = document.getElementById('source-path');
@@ -506,7 +557,7 @@ document.getElementById('scan-all').addEventListener('click', async () => {
         for (const source of sources) {
             await api(`/api/video-sources/${source.id}/scan`, {method: 'POST'});
         }
-        assets = await api('/api/videos') || [];
+        await loadVideos();
         renderVideos();
         showToast('扫描完成', 'success');
     } catch (e) {
@@ -518,8 +569,10 @@ document.getElementById('scan-all').addEventListener('click', async () => {
 
 document.getElementById('pick-local-video').addEventListener('click', async () => {
     try {
-        const asset = await api('/api/videos/pick-local', {method: 'POST'});
-        assets.push(asset);
+        await api('/api/videos/pick-local', {method: 'POST'});
+        // 新登记的视频排在最前面，回到第一页重新加载
+        videoPage.page = 0;
+        await loadVideos();
         renderVideos();
         showToast('视频添加成功', 'success');
     } catch (e) {
@@ -549,7 +602,7 @@ function renderSources() {
 window.scanSource = async function (id) {
     try {
         await api(`/api/video-sources/${id}/scan`, {method: 'POST'});
-        assets = await api('/api/videos') || [];
+        await loadVideos();
         renderVideos();
         showToast('扫描完成', 'success');
     } catch (e) {
@@ -570,45 +623,39 @@ window.deleteSource = async function (id) {
 };
 
 function renderVideos() {
-    // 视频按登记（扫描添加）时间倒序，最新登记的排在最前面
-    assets.sort((a, b) => assetAddedTime(b) - assetAddedTime(a));
-    document.getElementById('video-count').textContent = assets.length;
+    // 排序与分页由服务端负责，页面内保持接口返回的顺序
+    document.getElementById('video-count').textContent = videoPage.total;
     const tbody = document.getElementById('video-list');
     if (assets.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--text-dim)">暂无视频</td></tr>';
-        return;
-    }
-    tbody.innerHTML = assets.map(a => {
-        const source = sources.find(s => s.id === a.sourceId);
-        const sourceName = source ? escapeHtml(source.rootPath.split(/[\\/]/).pop()) : '本地';
-        const modTime = a.modifiedAt ? new Date(a.modifiedAt).toLocaleString('zh-CN') : '-';
-        const sizeStr = formatSize(a.fileSize);
-        const canCreate = a.readable !== false;
-        const rowClass = canCreate ? 'clickable' : 'unavailable';
-        const actionBtn = canCreate
-            ? `<button onclick="openCreateModal(${a.id})">编辑比分</button>
+        const keyword = document.getElementById('video-search')?.value?.trim();
+        tbody.innerHTML = `<tr><td colspan="5" style="text-align:center;color:var(--text-dim)">${keyword ? '没有匹配的视频' : '暂无视频'}</td></tr>`;
+    } else {
+        tbody.innerHTML = assets.map(a => {
+            const source = sources.find(s => s.id === a.sourceId);
+            const sourceName = source ? escapeHtml(source.rootPath.split(/[\\/]/).pop()) : '本地';
+            const modTime = a.modifiedAt ? new Date(a.modifiedAt).toLocaleString('zh-CN') : '-';
+            const sizeStr = formatSize(a.fileSize);
+            const canCreate = a.readable !== false;
+            const rowClass = canCreate ? 'clickable' : 'unavailable';
+            const actionBtn = canCreate
+                ? `<button onclick="openCreateModal(${a.id})">编辑比分</button>
                <button class="secondary" onclick="openClipModal(event, ${a.id})">开始剪辑</button>`
-            : `<span class="badge">不可读</span>`;
-        return `<tr class="${rowClass}" ${canCreate ? `onclick="openCreateModal(${a.id})"` : ''}>
+                : `<span class="badge">不可读</span>`;
+            return `<tr class="${rowClass}" ${canCreate ? `onclick="openCreateModal(${a.id})"` : ''}>
       <td class="name" title="${escapeHtml(a.displayName)}">${escapeHtml(a.displayName)}</td>
       <td class="size">${sizeStr}</td>
       <td class="source">${sourceName}</td>
       <td class="time">${modTime}</td>
       <td class="actions">${actionBtn}<button class="danger delete-btn" onclick="deleteVideo(event, ${a.id})">删除</button></td>
     </tr>`;
-    }).join('');
-}
-
-/**
- * 视频登记（扫描添加）时间
- * 登记时间为空时按最旧处理
- */
-function assetAddedTime(asset) {
-    if (!asset || !asset.createdAt) {
-        return 0;
+        }).join('');
     }
-    const time = new Date(asset.createdAt).getTime();
-    return Number.isNaN(time) ? 0 : time;
+    const pager = document.getElementById('video-pager');
+    pager.classList.toggle('hidden', videoPage.totalPages <= 1);
+    document.getElementById('video-prev').disabled = videoPage.page <= 0;
+    document.getElementById('video-next').disabled = videoPage.page >= videoPage.totalPages - 1;
+    document.getElementById('video-page-info').textContent =
+        `第 ${videoPage.page + 1} / ${Math.max(videoPage.totalPages, 1)} 页`;
 }
 
 /**

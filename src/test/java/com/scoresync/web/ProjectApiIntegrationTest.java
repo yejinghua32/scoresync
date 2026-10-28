@@ -184,8 +184,41 @@ class ProjectApiIntegrationTest {
     }
 
     @Test
-    void removeAllVideos_shouldDropUnusedAndReportSkipped() throws Exception {
+    void listVideos_shouldPaginateAndFilterBySearch() throws Exception {
         VideoSource source = sources.insert("/videos");
+        assets.insert(source.id(), "/videos/alpha.mp4", "alpha.mp4", 1024L, System.currentTimeMillis(), VideoOriginType.SCANNED);
+        assets.insert(source.id(), "/videos/beta.mp4", "beta.mp4", 2048L, System.currentTimeMillis(), VideoOriginType.SCANNED);
+        assets.insert(source.id(), "/videos/gamma.mp4", "gamma.mp4", 4096L, System.currentTimeMillis(), VideoOriginType.SCANNED);
+
+        mockMvc.perform(get("/api/videos").param("size", "2"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items.length()").value(2))
+                .andExpect(jsonPath("$.total").value(3))
+                .andExpect(jsonPath("$.totalPages").value(2));
+
+        mockMvc.perform(get("/api/videos").param("search", "gamma"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items.length()").value(1))
+                .andExpect(jsonPath("$.items[0].displayName").value("gamma.mp4"))
+                .andExpect(jsonPath("$.total").value(1));
+    }
+
+    @Test
+    void listProjects_shouldFilterBySearch() throws Exception {
+        VideoSource source = sources.insert("/videos");
+        long videoId = assets.insert(source.id(), "/videos/test.mp4", "测试视频", 1024L, System.currentTimeMillis(), VideoOriginType.SCANNED);
+        projects.insert("总决赛", videoId, 60000L, "甲", "乙", 2, ScoreboardTemplate.CLASSIC, com.scoresync.domain.PlayerSide.A);
+        projects.insert("半决赛", videoId, 60000L, "丙", "丁", 2, ScoreboardTemplate.CLASSIC, com.scoresync.domain.PlayerSide.A);
+
+        mockMvc.perform(get("/api/projects").param("search", "总决"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items.length()").value(1))
+                .andExpect(jsonPath("$.items[0].name").value("总决赛"))
+                .andExpect(jsonPath("$.total").value(1));
+    }
+
+    @Test
+    void removeAllVideos_shouldDropUnusedAndReportSkipped() throws Exception {        VideoSource source = sources.insert("/videos");
         long usedId = assets.insert(source.id(), "/videos/used.mp4", "使用中.mp4", 1024L, System.currentTimeMillis(), VideoOriginType.SCANNED);
         assets.insert(source.id(), "/videos/free.mp4", "空闲.mp4", 1024L, System.currentTimeMillis(), VideoOriginType.SCANNED);
         projects.insert("决赛", usedId, 60000L, "甲", "乙", 2, ScoreboardTemplate.CLASSIC, com.scoresync.domain.PlayerSide.A);

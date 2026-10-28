@@ -89,6 +89,9 @@
                 <span>视频列表 <span id="video-count" class="count-badge">0</span></span>
                 <button id="delete-all-videos" class="secondary">全部删除</button>
             </div>
+            <div class="search-bar">
+                <input type="text" id="video-search" placeholder="搜索视频文件名...">
+            </div>
             <table class="video-table">
                 <thead>
                 <tr>
@@ -101,6 +104,11 @@
                 </thead>
                 <tbody id="video-list"></tbody>
             </table>
+            <div id="video-pager" class="pager hidden">
+                <button id="video-prev" class="secondary">上一页</button>
+                <span id="video-page-info" class="pager-info"></span>
+                <button id="video-next" class="secondary">下一页</button>
+            </div>
         </div>
         </div>
 
@@ -125,6 +133,11 @@
                 </thead>
                 <tbody id="clip-project-list"></tbody>
             </table>
+            <div id="clip-project-pager" class="pager hidden">
+                <button id="clip-project-prev" class="secondary">上一页</button>
+                <span id="clip-project-page-info" class="pager-info"></span>
+                <button id="clip-project-next" class="secondary">下一页</button>
+            </div>
         </div>
     </div>
 

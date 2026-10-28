@@ -12,6 +12,7 @@ import com.scoresync.web.dto.ClipFrameIndexStatusResponse;
 import com.scoresync.web.dto.ClipProjectResponse;
 import com.scoresync.web.dto.ClipSegmentRequest;
 import com.scoresync.web.dto.CreateClipProjectRequest;
+import com.scoresync.web.dto.PageResponse;
 import com.scoresync.web.dto.SubmitClipSegmentsRequest;
 import com.scoresync.web.dto.UpdateClipProjectRequest;
 import jakarta.validation.Valid;
@@ -58,11 +59,14 @@ public class ClipProjectController {
     }
 
     /**
-     * 列出全部剪辑项目
+     * 列出剪辑项目
+     * 支持分页与按项目名、视频名搜索
      */
     @GetMapping
-    public List<ClipProjectResponse> list() {
-        return clipProjectService.list().stream().map(ClipProjectResponse::from).toList();
+    public PageResponse<ClipProjectResponse> list(@RequestParam(defaultValue = "0") int page,
+                                                   @RequestParam(defaultValue = "10") int size,
+                                                   @RequestParam(required = false) String search) {
+        return clipProjectService.listPage(page, size, search).map(ClipProjectResponse::from);
     }
 
     /**

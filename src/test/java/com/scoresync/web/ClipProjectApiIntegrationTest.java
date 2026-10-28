@@ -146,8 +146,49 @@ class ClipProjectApiIntegrationTest {
 
         mockMvc.perform(get("/api/clip-projects"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(1))
-                .andExpect(jsonPath("$[0].name").value("第一集"));
+                .andExpect(jsonPath("$.items.length()").value(1))
+                .andExpect(jsonPath("$.items[0].name").value("第一集"))
+                .andExpect(jsonPath("$.total").value(1))
+                .andExpect(jsonPath("$.totalPages").value(1));
+    }
+
+    @Test
+    void listClipProjectsFiltersBySearch() throws Exception {
+        mockMvc.perform(post("/api/clip-projects")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"第一集\",\"videoId\":1}"))
+                .andExpect(status().isCreated());
+        mockMvc.perform(post("/api/clip-projects")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"第二集\",\"videoId\":1}"))
+                .andExpect(status().isCreated());
+
+        mockMvc.perform(get("/api/clip-projects").param("search", "第一"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items.length()").value(1))
+                .andExpect(jsonPath("$.items[0].name").value("第一集"))
+                .andExpect(jsonPath("$.total").value(1));
+    }
+
+    @Test
+    void listClipProjectsPaginates() throws Exception {
+        for (int i = 0; i < 3; i++) {
+            mockMvc.perform(post("/api/clip-projects")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"name\":\"第" + i + "集\",\"videoId\":1}"))
+                    .andExpect(status().isCreated());
+        }
+
+        mockMvc.perform(get("/api/clip-projects").param("size", "2"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items.length()").value(2))
+                .andExpect(jsonPath("$.total").value(3))
+                .andExpect(jsonPath("$.totalPages").value(2));
+
+        mockMvc.perform(get("/api/clip-projects").param("size", "2").param("page", "1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items.length()").value(1))
+                .andExpect(jsonPath("$.page").value(1));
     }
 
     @Test

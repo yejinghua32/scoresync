@@ -71,6 +71,47 @@ public class ClipProjectRepository {
     }
 
     /**
+     * 分页查询剪辑项目
+     * 可按项目名称或所属视频名称过滤
+     *
+     * @param offset 起始偏移
+     * @param limit  返回数量上限
+     * @param search 关键字，为空时不过滤
+     */
+    public List<ClipProject> findPage(int offset, int limit, String search) {
+        if (search == null || search.isBlank()) {
+            return jdbc.query("SELECT * FROM clip_project ORDER BY id DESC LIMIT ? OFFSET ?",
+                    ROW_MAPPER, limit, offset);
+        }
+        String like = "%" + search.trim() + "%";
+        return jdbc.query("""
+                SELECT c.* FROM clip_project c
+                LEFT JOIN video_asset v ON v.id = c.video_asset_id
+                WHERE c.name LIKE ? OR v.display_name LIKE ?
+                ORDER BY c.id DESC LIMIT ? OFFSET ?""",
+                ROW_MAPPER, like, like, limit, offset);
+    }
+
+    /**
+     * 统计剪辑项目数量
+     *
+     * @param search 关键字，为空时统计全部
+     */
+    public int count(String search) {
+        Integer count;
+        if (search == null || search.isBlank()) {
+            count = jdbc.queryForObject("SELECT COUNT(*) FROM clip_project", Integer.class);
+        } else {
+            String like = "%" + search.trim() + "%";
+            count = jdbc.queryForObject("""
+                    SELECT COUNT(*) FROM clip_project c
+                    LEFT JOIN video_asset v ON v.id = c.video_asset_id
+                    WHERE c.name LIKE ? OR v.display_name LIKE ?""", Integer.class, like, like);
+        }
+        return count == null ? 0 : count;
+    }
+
+    /**
      * 更新项目名称与两个步长
      */
     public int updateConfig(ClipProject project) {
