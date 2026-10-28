@@ -6,10 +6,11 @@ import {api, escapeHtml} from './api.js';
  *
  * 交互约定：
  * - ↑/↓ 设定当前暂选类型（保留/舍弃）并向后取大步长
+ * - ↑/↓ 切换类型时自动存档上一段尚未存档的暂选
  * - → 追加小步长
  * - ← 从暂选末尾减少小步长
  * - Enter 存档暂选，类型不随之切换
- * 暂选只存在于前端内存，按 Enter 存档后才持久化
+ * 暂选只存在于前端内存，按 Enter 或切换类型时才持久化
  */
 
 /** 左右两侧显示的帧偏移：当前帧的前/后第 3 帧 */
@@ -46,6 +47,8 @@ let smallStep = 5;
 let cursor = 0;
 /** 暂选区间 {start, end, type}，未存档 */
 let pending = null;
+/** 正在进行的存档请求，非空时复用同一个请求，避免连按造成重复提交 */
+let archiveInFlight = null;
 /** 缩略图缓存 "帧号:尺寸" -> {url, bytes, timeMs, lastUsed} */
 const thumbnails = new Map();
 /** 缩略图缓存占用的字节数 */
@@ -286,10 +289,18 @@ function onKeyDown(e) {
 
 /**
  * ↑/↓：设定暂选类型并向后取大步长
+ * 与当前暂选类型不同即为切换，切换前先把尚未存档的暂选存档
  */
-function stepSelection(type) {
-    if (totalFrames <= 0) {
+async function stepSelection(type) {
+    if (totalFrames <= 0 || archiveInFlight) {
         return;
+    }
+    if (pending && pending.type !== type) {
+        const saved = await archivePending('已自动存档上一段暂选');
+        if (!saved) {
+            // 存档失败时保留暂选，避免丢帧
+            return;
+        }
     }
     if (!pending) {
         pending = {start: cursor, end: cursor, type};
@@ -395,9 +406,37 @@ function seekVideoToFrame(frame) {
  * Enter：存档暂选，类型不随之切换
  */
 async function commitPending() {
+    if (archiveInFlight) {
+        return;
+    }
     if (!pending || pending.end <= pending.start) {
         showToast('没有可存档的暂选', 'warning');
         return;
+    }
+    await archivePending('片段已存档');
+}
+
+/**
+ * 存档当前暂选
+ * 同时只允许一个存档请求在途，连按时复用同一个请求
+ * @param {string} message 存档成功后的提示文案
+ * @returns {Promise<boolean>} 是否存档成功，没有可存档的暂选也算成功
+ */
+function archivePending(message) {
+    if (archiveInFlight) {
+        return archiveInFlight;
+    }
+    archiveInFlight = doArchivePending(message).finally(() => {
+        archiveInFlight = null;
+    });
+    return archiveInFlight;
+}
+
+async function doArchivePending(message) {
+    if (!pending || pending.end <= pending.start) {
+        pending = null;
+        renderPending();
+        return true;
     }
     const segment = {type: pending.type, startFrame: pending.start, endFrame: pending.end};
     try {
@@ -413,9 +452,11 @@ async function commitPending() {
         renderTimeline();
         updateFrameInfo();
         updateExportAvailability();
-        showToast('片段已存档', 'success');
+        showToast(message, 'success');
+        return true;
     } catch (e) {
         showToast(e.message, 'error');
+        return false;
     }
 }
 
