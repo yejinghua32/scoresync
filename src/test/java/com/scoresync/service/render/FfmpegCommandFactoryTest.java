@@ -25,7 +25,7 @@ class FfmpegCommandFactoryTest {
 
     private MatchProject project() {
         return new MatchProject(1L, "测试比赛", 1L, 5000L, "甲", "乙", 3,
-                ScoreboardTemplate.CLASSIC, com.scoresync.domain.PlayerSide.A, Instant.now(), Instant.now());
+                ScoreboardTemplate.CLASSIC, com.scoresync.domain.PlayerSide.A, false, Instant.now(), Instant.now());
     }
 
     private VideoAsset video() {

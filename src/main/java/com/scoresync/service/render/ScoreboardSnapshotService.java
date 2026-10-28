@@ -69,7 +69,9 @@ public class ScoreboardSnapshotService {
                 frameWidth,
                 frameHeight,
                 lastCue.setScores(),
-                highlightedSide
+                highlightedSide,
+                project.name(),
+                project.showProjectName()
         );
     }
 }

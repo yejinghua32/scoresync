@@ -19,7 +19,21 @@ public record BackupDocument(
             String playerA,
             String playerB,
             int targetWins,
-            String firstServer) {
+            String firstServer,
+            /** 比分牌队名列表头是否显示项目名称；旧备份没有该字段时按不显示处理 */
+            Boolean showProjectName) {
+
+        public BackupProject(String name, long durationMs, String playerA, String playerB,
+                             int targetWins, String firstServer) {
+            this(name, durationMs, playerA, playerB, targetWins, firstServer, null);
+        }
+
+        /**
+         * 比分牌队名列表头是否显示项目名称
+         */
+        public boolean showProjectNameOrDefault() {
+            return showProjectName != null && showProjectName;
+        }
     }
 
     public record BackupVideo(

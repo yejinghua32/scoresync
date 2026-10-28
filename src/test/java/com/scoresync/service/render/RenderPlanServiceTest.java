@@ -24,7 +24,7 @@ class RenderPlanServiceTest {
 
     private MatchProject project() {
         return new MatchProject(1L, "测试比赛", 1L, 5000L, "甲", "乙", 3,
-                ScoreboardTemplate.CLASSIC, com.scoresync.domain.PlayerSide.A, Instant.now(), Instant.now());
+                ScoreboardTemplate.CLASSIC, com.scoresync.domain.PlayerSide.A, false, Instant.now(), Instant.now());
     }
 
     private VideoAsset video() {
@@ -113,7 +113,7 @@ class RenderPlanServiceTest {
     @Test
     void freezesTemplateFromProject() {
         MatchProject modernProject = new MatchProject(2L, "现代比赛", 1L, 5000L, "甲", "乙", 3,
-                ScoreboardTemplate.MODERN, com.scoresync.domain.PlayerSide.A, Instant.now(), Instant.now());
+                ScoreboardTemplate.MODERN, com.scoresync.domain.PlayerSide.A, false, Instant.now(), Instant.now());
 
         RenderPlan plan = service.create(modernProject, video(), List.of(
                 new ScoreboardCue(0, 0, 1, 0, 0, 0, 0, false)

@@ -47,6 +47,18 @@ public class ProjectService {
     @Transactional
     public EditorState create(String name, long videoAssetId, long durationMs,
                               String playerA, String playerB, int targetWins) {
+        return create(name, videoAssetId, durationMs, playerA, playerB, targetWins, false);
+    }
+
+    /**
+     * 创建新比赛项目
+     *
+     * @param showProjectName 比分牌队名列表头是否显示项目名称
+     */
+    @Transactional
+    public EditorState create(String name, long videoAssetId, long durationMs,
+                              String playerA, String playerB, int targetWins,
+                              boolean showProjectName) {
         if (name == null || name.isBlank()) {
             throw new DomainValidationException("项目名称不能为空");
         }
@@ -65,7 +77,8 @@ public class ProjectService {
 
         VideoAsset video = videoAssetRepository.findById(videoAssetId);
 
-        long projectId = projectRepository.insert(name, videoAssetId, durationMs, playerA, playerB, targetWins, ScoreboardTemplate.CLASSIC, PlayerSide.A);
+        long projectId = projectRepository.insert(name, videoAssetId, durationMs, playerA, playerB, targetWins,
+                ScoreboardTemplate.CLASSIC, PlayerSide.A, showProjectName);
 
         return editorState(projectId);
     }
@@ -100,7 +113,8 @@ public class ProjectService {
                         videoName = "(视频已删除)";
                     }
                     return new ProjectSummary(p.id(), p.name(), p.playerA(), p.playerB(),
-                            p.targetWins(), p.videoAssetId(), videoName, p.createdAt(), p.updatedAt());
+                            p.targetWins(), p.videoAssetId(), videoName, p.showProjectName(),
+                            p.createdAt(), p.updatedAt());
                 })
                 .toList();
         return new PageResponse<>(items, currentPage, request.size(), total, totalPages);
@@ -114,7 +128,8 @@ public class ProjectService {
         MatchProject project = projectRepository.findById(projectId);
         MatchProject updated = new MatchProject(project.id(), project.name(), project.videoAssetId(),
                 project.durationMs(), project.playerA(), project.playerB(), project.targetWins(),
-                template, project.firstServer(), project.createdAt(), project.updatedAt());
+                template, project.firstServer(), project.showProjectName(),
+                project.createdAt(), project.updatedAt());
         projectRepository.update(updated);
         return editorState(projectId);
     }
@@ -124,10 +139,23 @@ public class ProjectService {
      */
     @Transactional
     public EditorState updateProject(long projectId, String name, String playerA, String playerB, int targetWins) {
+        return updateProject(projectId, name, playerA, playerB, targetWins, null);
+    }
+
+    /**
+     * 更新项目的基本信息
+     *
+     * @param showProjectName 比分牌队名列表头是否显示项目名称；为 null 表示不改动
+     */
+    @Transactional
+    public EditorState updateProject(long projectId, String name, String playerA, String playerB, int targetWins,
+                                    Boolean showProjectName) {
         MatchProject project = projectRepository.findById(projectId);
+        boolean showName = showProjectName == null ? project.showProjectName() : showProjectName;
         MatchProject updated = new MatchProject(project.id(), name, project.videoAssetId(),
                 project.durationMs(), playerA, playerB, targetWins,
-                project.scoreboardTemplate(), project.firstServer(), project.createdAt(), project.updatedAt());
+                project.scoreboardTemplate(), project.firstServer(), showName,
+                project.createdAt(), project.updatedAt());
         projectRepository.update(updated);
         return editorState(projectId);
     }
@@ -140,7 +168,8 @@ public class ProjectService {
         MatchProject project = projectRepository.findById(projectId);
         MatchProject updated = new MatchProject(project.id(), project.name(), project.videoAssetId(),
                 project.durationMs(), project.playerA(), project.playerB(), project.targetWins(),
-                project.scoreboardTemplate(), firstServer, project.createdAt(), project.updatedAt());
+                project.scoreboardTemplate(), firstServer, project.showProjectName(),
+                project.createdAt(), project.updatedAt());
         projectRepository.update(updated);
         return editorState(projectId);
     }

@@ -76,6 +76,7 @@ class ProjectApiIntegrationTest {
                   player_a TEXT NOT NULL, player_b TEXT NOT NULL, target_wins INTEGER NOT NULL CHECK (target_wins >= 1),
                   scoreboard_template TEXT NOT NULL DEFAULT 'CLASSIC',
                   first_server TEXT NOT NULL DEFAULT 'A' CHECK (first_server IN ('A','B')),
+                  show_project_name INTEGER NOT NULL DEFAULT 0,
                   created_at TEXT NOT NULL, updated_at TEXT NOT NULL
                 )""");
         jdbc.execute("""
@@ -134,7 +135,41 @@ class ProjectApiIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"name\":\"半决赛\",\"videoId\":" + videoId + ",\"durationMs\":60000,\"playerA\":\"甲\",\"playerB\":\"乙\",\"targetWins\":2}"))
                 .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.project.targetWins").value(2));
+                .andExpect(jsonPath("$.project.targetWins").value(2))
+                // 默认不显示项目名称
+                .andExpect(jsonPath("$.project.showProjectName").value(false));
+    }
+
+    @Test
+    void createProject_withShowProjectName_shouldPersistFlag() throws Exception {
+        VideoSource source = sources.insert("/videos");
+        long videoId = assets.insert(source.id(), "/videos/test.mp4", "测试视频", 1024L, System.currentTimeMillis(), VideoOriginType.SCANNED);
+
+        mockMvc.perform(post("/api/projects")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"半决赛\",\"videoId\":" + videoId + ",\"durationMs\":60000,\"playerA\":\"甲\","
+                                + "\"playerB\":\"乙\",\"targetWins\":2,\"showProjectName\":true}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.project.showProjectName").value(true));
+    }
+
+    @Test
+    void updateProject_shouldToggleShowProjectName() throws Exception {
+        VideoSource source = sources.insert("/videos");
+        long videoId = assets.insert(source.id(), "/videos/test.mp4", "测试视频", 1024L, System.currentTimeMillis(), VideoOriginType.SCANNED);
+        String created = mockMvc.perform(post("/api/projects")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"半决赛\",\"videoId\":" + videoId + ",\"durationMs\":60000,\"playerA\":\"甲\","
+                                + "\"playerB\":\"乙\",\"targetWins\":2,\"showProjectName\":true}"))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        long id = Long.parseLong(created.replaceAll(".*\"project\":\\{\"id\":(\\d+).*", "$1"));
+
+        mockMvc.perform(put("/api/projects/{id}", id)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"半决赛\",\"playerA\":\"甲\",\"playerB\":\"乙\",\"targetWins\":2,\"showProjectName\":false}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.project.showProjectName").value(false));
     }
 
     @Test
@@ -418,6 +453,7 @@ class ProjectApiIntegrationTest {
                   player_a TEXT NOT NULL, player_b TEXT NOT NULL, target_wins INTEGER NOT NULL CHECK (target_wins >= 1),
                   scoreboard_template TEXT NOT NULL DEFAULT 'CLASSIC',
                   first_server TEXT NOT NULL DEFAULT 'A' CHECK (first_server IN ('A','B')),
+                  show_project_name INTEGER NOT NULL DEFAULT 0,
                   created_at TEXT NOT NULL, updated_at TEXT NOT NULL
                 )""");
         jdbc.execute("""

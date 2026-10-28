@@ -369,6 +369,23 @@ button.danger:hover {
     flex: 1;
 }
 
+/* 复选框行 */
+.checkbox-row {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.8125rem;
+    color: var(--text);
+    margin-bottom: 0.5rem;
+    cursor: pointer;
+}
+
+.checkbox-row input {
+    width: auto;
+    margin: 0;
+    accent-color: var(--accent);
+}
+
 .modal-actions {
     display: flex;
     gap: 0.5rem;

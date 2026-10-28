@@ -88,6 +88,10 @@ public class ModernScoreboardRenderer implements ScoreboardTemplateRenderer {
 
         g.setColor(HEADER_BG);
         g.fillRoundRect(startX, 0, width - margin * 2, headerHeight, cornerRadius, cornerRadius);
+        if (snapshot.showProjectName()) {
+            SetScoreLayout.drawCellText(g, snapshot.projectName(), headerFont, MUTED,
+                    startX, 0, nameWidth, headerHeight);
+        }
         SetScoreLayout.drawCellText(g, "发球", headerFont, MUTED,
                 serveX, 0, serveColumnWidth, headerHeight);
         SetScoreLayout.drawCellText(g, "胜局", headerFont, MUTED, winsX, 0, setWinsWidth, headerHeight);

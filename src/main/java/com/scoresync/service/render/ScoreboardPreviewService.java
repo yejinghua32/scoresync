@@ -58,7 +58,9 @@ public class ScoreboardPreviewService {
                 renderWidth,
                 renderHeight,
                 snapshot.setScores(),
-                snapshot.highlightedSide()
+                snapshot.highlightedSide(),
+                snapshot.projectName(),
+                snapshot.showProjectName()
         );
 
         ScoreboardTemplateRenderer renderer = rendererMap.get(snapshot.template());

@@ -15,11 +15,13 @@ import java.time.Instant;
  * @param targetWins         获胜所需局数
  * @param scoreboardTemplate 使用的比分牌模板
  * @param firstServer        首局发球方
+ * @param showProjectName    比分牌队名列表头是否显示项目名称，默认不显示
  * @param createdAt          创建时间
  * @param updatedAt          最后更新时间
  */
 public record MatchProject(long id, String name, long videoAssetId, long durationMs,
                            String playerA, String playerB, int targetWins,
                            ScoreboardTemplate scoreboardTemplate, PlayerSide firstServer,
+                           boolean showProjectName,
                            Instant createdAt, Instant updatedAt) {
 }

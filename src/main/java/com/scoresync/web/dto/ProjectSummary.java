@@ -8,5 +8,6 @@ import java.time.Instant;
 
 public record ProjectSummary(long id, String name, String playerA, String playerB,
                              int targetWins, long videoAssetId, String videoName,
+                             boolean showProjectName,
                              Instant createdAt, Instant updatedAt) {
 }

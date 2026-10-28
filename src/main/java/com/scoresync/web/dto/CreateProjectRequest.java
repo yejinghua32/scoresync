@@ -13,5 +13,19 @@ public record CreateProjectRequest(
         @Positive long durationMs,
         @NotBlank String playerA,
         @NotBlank String playerB,
-        @Positive int targetWins) {
+        @Positive int targetWins,
+        /** 比分牌队名列表头是否显示项目名称，默认不显示 */
+        Boolean showProjectName) {
+
+    public CreateProjectRequest(String name, long videoId, long durationMs,
+                                String playerA, String playerB, int targetWins) {
+        this(name, videoId, durationMs, playerA, playerB, targetWins, null);
+    }
+
+    /**
+     * 比分牌队名列表头是否显示项目名称
+     */
+    public boolean showProjectNameOrDefault() {
+        return showProjectName != null && showProjectName;
+    }
 }

@@ -64,7 +64,8 @@ public class BackupService {
                 project.playerA(),
                 project.playerB(),
                 project.targetWins(),
-                project.firstServer().name());
+                project.firstServer().name(),
+                project.showProjectName());
 
         BackupDocument.BackupVideo backupVideo = new BackupDocument.BackupVideo(
                 video.displayName(),
@@ -99,7 +100,8 @@ public class BackupService {
                         ScoreboardTemplate.CLASSIC,
                         document.project().firstServer() != null
                                 ? PlayerSide.valueOf(document.project().firstServer())
-                                : PlayerSide.A));
+                                : PlayerSide.A,
+                        document.project().showProjectNameOrDefault()));
 
         List<ScoreEvent> candidate = document.events().stream()
                 .map(event -> new ScoreEvent(

@@ -105,6 +105,14 @@ CREATE TABLE IF NOT EXISTS match_project
     'A',
     'B'
 )),
+    show_project_name INTEGER NOT NULL DEFAULT 0 CHECK
+(
+    show_project_name
+    IN
+(
+    0,
+    1
+)),
     created_at TEXT NOT NULL, updated_at TEXT NOT NULL
     );
 CREATE TABLE IF NOT EXISTS score_event

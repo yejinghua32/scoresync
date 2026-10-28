@@ -28,12 +28,15 @@ class SchemaMigrationRunnerTest {
 
         List<String> columns = jdbc.query("PRAGMA table_info(match_project)",
                 (rs, rowNum) -> rs.getString("name"));
-        assertThat(columns).contains("scoreboard_template", "first_server");
+        assertThat(columns).contains("scoreboard_template", "first_server", "show_project_name");
         jdbc.update("INSERT INTO match_project (id, name, video_asset_id, duration_ms, player_a, player_b, target_wins, created_at, updated_at) VALUES (1, 'test', 1, 1000, 'A', 'B', 1, '2026-08-04T00:00:00Z', '2026-08-04T00:00:00Z')");
         assertThat(jdbc.queryForObject("SELECT scoreboard_template FROM match_project WHERE id = 1", String.class))
                 .isEqualTo("CLASSIC");
         assertThat(jdbc.queryForObject("SELECT first_server FROM match_project WHERE id = 1", String.class))
                 .isEqualTo("A");
+        // 旧项目升级后默认不显示项目名称
+        assertThat(jdbc.queryForObject("SELECT show_project_name FROM match_project WHERE id = 1", Integer.class))
+                .isZero();
     }
 
     @Test

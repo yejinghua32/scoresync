@@ -822,7 +822,8 @@ document.getElementById('project-form').addEventListener('submit', async (e) => 
                 durationMs: Number(form['project-duration-ms'].value),
                 playerA: playerA,
                 playerB: playerB,
-                targetWins: targetWins
+                targetWins: targetWins,
+                showProjectName: document.getElementById('show-project-name').checked
             })
         });
         location.assign(`/editor.html?projectId=${project.project.id}`);
@@ -896,6 +897,7 @@ window.openEditModal = async function (event, id) {
     }
     document.getElementById('edit-project-id').value = id;
     document.getElementById('edit-project-name').value = project.name;
+    document.getElementById('edit-show-project-name').checked = project.showProjectName === true;
     populatePlayerSelects();
     document.getElementById('edit-player-a').value = project.playerA || '';
     document.getElementById('edit-player-b').value = project.playerB || '';
@@ -953,7 +955,8 @@ document.getElementById('edit-project-form').addEventListener('submit', async (e
                 name: document.getElementById('edit-project-name').value.trim(),
                 playerA: playerA,
                 playerB: playerB,
-                targetWins: targetWins
+                targetWins: targetWins,
+                showProjectName: document.getElementById('edit-show-project-name').checked
             })
         });
         closeEditModal();

@@ -11,6 +11,8 @@ public record UpdateProjectRequest(
         @NotBlank String name,
         @NotBlank String playerA,
         @NotBlank String playerB,
-        @Positive int targetWins
+        @Positive int targetWins,
+        /** 比分牌队名列表头是否显示项目名称；不传表示不改动 */
+        Boolean showProjectName
 ) {
 }

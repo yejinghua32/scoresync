@@ -44,6 +44,14 @@ public class SchemaMigrationRunner implements CommandLineRunner {
                 jdbc.execute("ALTER TABLE match_project ADD COLUMN first_server "
                         + "TEXT NOT NULL DEFAULT 'A'");
             }
+            // 比分牌队名列表头是否显示项目名称，默认不显示
+            boolean showProjectNameExists = jdbc.query("PRAGMA table_info(match_project)",
+                            (rs, rowNum) -> rs.getString("name")).stream()
+                    .anyMatch("show_project_name"::equals);
+            if (!showProjectNameExists) {
+                jdbc.execute("ALTER TABLE match_project ADD COLUMN show_project_name "
+                        + "INTEGER NOT NULL DEFAULT 0");
+            }
         }
         boolean settingsTableExists = tableExists("app_settings");
         if (!settingsTableExists) {

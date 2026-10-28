@@ -61,6 +61,7 @@ class RenderJobServiceTest {
                 "  player_a TEXT NOT NULL, player_b TEXT NOT NULL, target_wins INTEGER NOT NULL," +
                 "  scoreboard_template TEXT NOT NULL DEFAULT 'CLASSIC'," +
                 "  first_server TEXT NOT NULL DEFAULT 'A' CHECK (first_server IN ('A','B'))," +
+                "  show_project_name INTEGER NOT NULL DEFAULT 0," +
                 "  created_at TEXT NOT NULL, updated_at TEXT NOT NULL" +
                 ")");
         jdbc.execute("CREATE TABLE score_event (" +

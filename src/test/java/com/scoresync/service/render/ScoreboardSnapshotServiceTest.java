@@ -15,7 +15,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class ScoreboardSnapshotServiceTest {
 
     private MatchProject project(ScoreboardTemplate template) {
-        return new MatchProject(1L, "Test Match", 1L, 5000L, "Player A", "Player B", 3, template, com.scoresync.domain.PlayerSide.A, Instant.now(), Instant.now());
+        return new MatchProject(1L, "Test Match", 1L, 5000L, "Player A", "Player B", 3, template, com.scoresync.domain.PlayerSide.A, false, Instant.now(), Instant.now());
     }
 
     @Test

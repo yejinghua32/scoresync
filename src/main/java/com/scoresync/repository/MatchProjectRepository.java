@@ -29,6 +29,7 @@ public class MatchProjectRepository {
                     rs.getLong("duration_ms"), rs.getString("player_a"), rs.getString("player_b"),
                     rs.getInt("target_wins"), ScoreboardTemplate.valueOf(rs.getString("scoreboard_template")),
                     PlayerSide.valueOf(rs.getString("first_server")),
+                    rs.getInt("show_project_name") != 0,
                     Instant.parse(rs.getString("created_at")), Instant.parse(rs.getString("updated_at")));
 
     public MatchProjectRepository(JdbcTemplate jdbc) {
@@ -44,6 +45,19 @@ public class MatchProjectRepository {
     public long insert(String name, long videoAssetId, long durationMs,
                        String playerA, String playerB, int targetWins,
                        ScoreboardTemplate scoreboardTemplate, PlayerSide firstServer) {
+        return insert(name, videoAssetId, durationMs, playerA, playerB, targetWins,
+                scoreboardTemplate, firstServer, false);
+    }
+
+    /**
+     * 新建比赛项目
+     *
+     * @return 新建记录的主键ID
+     */
+    public long insert(String name, long videoAssetId, long durationMs,
+                       String playerA, String playerB, int targetWins,
+                       ScoreboardTemplate scoreboardTemplate, PlayerSide firstServer,
+                       boolean showProjectName) {
         Instant now = Instant.now();
         MapSqlParameterSource params = new MapSqlParameterSource()
                 .addValue("name", name)
@@ -54,6 +68,7 @@ public class MatchProjectRepository {
                 .addValue("target_wins", targetWins)
                 .addValue("scoreboard_template", scoreboardTemplate.name())
                 .addValue("first_server", firstServer.name())
+                .addValue("show_project_name", showProjectName ? 1 : 0)
                 .addValue("created_at", now.toString())
                 .addValue("updated_at", now.toString());
         return insert.executeAndReturnKey(params).longValue();
@@ -143,11 +158,12 @@ public class MatchProjectRepository {
         return jdbc.update("""
                         UPDATE match_project SET name = ?, video_asset_id = ?, duration_ms = ?,
                         player_a = ?, player_b = ?, target_wins = ?, scoreboard_template = ?,
-                        first_server = ?, updated_at = ? WHERE id = ?""",
+                        first_server = ?, show_project_name = ?, updated_at = ? WHERE id = ?""",
                 project.name(), project.videoAssetId(), project.durationMs(),
                 project.playerA(), project.playerB(), project.targetWins(),
                 project.scoreboardTemplate().name(),
                 project.firstServer().name(),
+                project.showProjectName() ? 1 : 0,
                 Instant.now().toString(), project.id());
     }
 

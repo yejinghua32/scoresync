@@ -34,7 +34,8 @@ public class ProjectController {
                 request.durationMs(),
                 request.playerA(),
                 request.playerB(),
-                request.targetWins());
+                request.targetWins(),
+                request.showProjectNameOrDefault());
         return ResponseEntity.status(HttpStatus.CREATED).body(state);
     }
 
@@ -91,7 +92,8 @@ public class ProjectController {
     @PutMapping("/projects/{id}")
     public ResponseEntity<EditorState> updateProject(@PathVariable long id,
                                                      @Valid @RequestBody UpdateProjectRequest request) {
-        EditorState state = projectService.updateProject(id, request.name(), request.playerA(), request.playerB(), request.targetWins());
+        EditorState state = projectService.updateProject(id, request.name(), request.playerA(), request.playerB(),
+                request.targetWins(), request.showProjectName());
         return ResponseEntity.ok(state);
     }
 }

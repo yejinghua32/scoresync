@@ -23,6 +23,12 @@ class ScoreboardTemplateRendererTest {
                 List.of(new SetScore(1, 11, 8), new SetScore(2, 5, 3)));
     }
 
+    /** 构造在队名列表头显示项目名称的快照 */
+    private ScoreboardSnapshot namedProjectSnapshot(ScoreboardTemplate template) {
+        return new ScoreboardSnapshot(template, "Player A", "Player B", 5, 3, 2, 1, 0, false, PlayerSide.A, 1920, 1080,
+                List.of(new SetScore(1, 11, 8), new SetScore(2, 5, 3)), null, "2026 总决赛", true);
+    }
+
     private ScoreboardSnapshot compactSnapshot(ScoreboardTemplate template) {
         return new ScoreboardSnapshot(template, "Player A", "Player B", 5, 3, 2, 1, 0, false, PlayerSide.A, 320, 180,
                 List.of(new SetScore(1, 11, 8), new SetScore(2, 5, 3)));
@@ -322,6 +328,27 @@ class ScoreboardTemplateRendererTest {
 
         assertThat(classic).isZero();
         assertThat(modern).isZero();
+    }
+
+    @Test
+    void teamNameHeaderShowsProjectNameWhenEnabled() {
+        // 开启后队名列表头显示项目名称
+        int frameWidth = 1920;
+        int frameHeight = 1080;
+        int barHeight = RenderDimensions.barHeight(frameWidth, frameHeight);
+        int headerHeight = Math.max(6, (int) Math.round(barHeight * 0.22));
+        int nameX = SetScoreLayout.margin(frameWidth);
+        int nameEnd = nameX + SetScoreLayout.nameWidth(frameWidth);
+
+        int classic = countLightPixels(
+                new ClassicScoreboardRenderer().render(namedProjectSnapshot(ScoreboardTemplate.CLASSIC)),
+                nameX, 0, nameEnd, headerHeight);
+        int modern = countLightPixels(
+                new ModernScoreboardRenderer().render(namedProjectSnapshot(ScoreboardTemplate.MODERN)),
+                nameX, 0, nameEnd, headerHeight);
+
+        assertThat(classic).isGreaterThan(0);
+        assertThat(modern).isGreaterThan(0);
     }
 
     private int countTransparentPixels(BufferedImage image) {

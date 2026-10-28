@@ -80,7 +80,9 @@ public class RenderJobController {
                 snapshot.frameWidth(),
                 snapshot.frameHeight(),
                 snapshot.setScores(),
-                snapshot.highlightedSide()
+                snapshot.highlightedSide(),
+                snapshot.projectName(),
+                snapshot.showProjectName()
         );
 
         byte[] pngData = previewService.generatePreview(previewSnapshot);

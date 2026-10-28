@@ -62,6 +62,7 @@ class RenderJobApiIntegrationTest {
                   player_a TEXT NOT NULL, player_b TEXT NOT NULL, target_wins INTEGER NOT NULL CHECK (target_wins >= 1),
                   scoreboard_template TEXT NOT NULL DEFAULT 'CLASSIC' CHECK (scoreboard_template IN ('CLASSIC','MODERN')),
                   first_server TEXT NOT NULL DEFAULT 'A' CHECK (first_server IN ('A','B')),
+                  show_project_name INTEGER NOT NULL DEFAULT 0,
                   created_at TEXT NOT NULL, updated_at TEXT NOT NULL
                 )""");
         jdbc.execute("""
