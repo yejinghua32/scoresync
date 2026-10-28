@@ -1159,6 +1159,57 @@ button.danger:hover {
     z-index: 5;
 }
 
+/* 时间轴刻度：宽度够时显示加粗的时间标签 */
+.clip-timeline-ruler {
+    position: relative;
+    height: 18px;
+    margin-top: 2px;
+    overflow: hidden;
+}
+
+.clip-tick {
+    position: absolute;
+    top: 0;
+    transform: translateX(-50%);
+}
+
+.clip-tick-line {
+    display: block;
+    width: 1px;
+    height: 4px;
+    margin: 0 auto;
+    background: var(--border);
+}
+
+.clip-tick.labelled .clip-tick-line {
+    height: 7px;
+    background: var(--text-dim);
+}
+
+.clip-tick-label {
+    position: absolute;
+    top: 8px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 0.6875rem;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-dim);
+    white-space: nowrap;
+}
+
+/* 首尾刻度的标签贴边，避免被裁掉 */
+.clip-tick.first .clip-tick-label {
+    left: 0;
+    transform: none;
+}
+
+.clip-tick.last .clip-tick-label {
+    left: auto;
+    right: 0;
+    transform: none;
+}
+
 .clip-segments-section {
     margin-top: 0.5rem;
 }

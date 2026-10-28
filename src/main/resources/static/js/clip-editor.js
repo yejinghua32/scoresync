@@ -28,6 +28,13 @@ const THUMBNAIL_MAX_BYTES = 32 * 1024 * 1024;
 const THUMBNAIL_MAX_CONCURRENT = 3;
 /** 播放中发起缩略图请求的最小间隔（毫秒），避免每次 timeupdate 都触发抽帧 */
 const PLAYBACK_THUMBNAIL_INTERVAL_MS = 250;
+/** 中间图区域轮播的间隔（毫秒），三张图像 GIF 一样依次播放 */
+const STRIP_CYCLE_INTERVAL = 150;
+/** 时间轴刻度的候选间隔（毫秒） */
+const TICK_INTERVALS = [1000, 2000, 5000, 10000, 15000, 30000, 60000, 120000,
+    300000, 600000, 900000, 1800000, 3600000];
+/** 显示时间刻度标签所需的最小间距（像素） */
+const TICK_LABEL_MIN_SPACING = 52;
 
 let project = null;
 let segments = [];
@@ -53,6 +60,10 @@ let thumbnailActive = 0;
 let thumbnailEpoch = 0;
 /** 上一次发起缩略图请求的时间 */
 let lastThumbnailRequestAt = 0;
+/** 中间图区域的轮播状态 */
+let stripCycleTimer = null;
+let stripCycleFrames = [];
+let stripCycleIndex = 0;
 /** 帧号 -> 源视频时间（毫秒） */
 let frameTimes = new Int32Array(0);
 /** 导出任务轮询句柄 */
@@ -147,8 +158,9 @@ async function ensureFrameIndex(projectId) {
             await loadFrameTimes();
             updateFrameInfo();
             updateExportAvailability();
-            // 帧时间就绪后重算片段时长
+            // 帧时间就绪后重算片段时长与时间轴刻度
             renderSegments();
+            renderTimeline();
             refreshStrip();
             return;
         }
@@ -415,6 +427,8 @@ function togglePlay() {
     } else {
         video.pause();
     }
+    // 播放与暂停时中间图区域的轮播随之开关
+    refreshStrip();
 }
 
 /**
@@ -582,6 +596,7 @@ function formatDuration(ms) {
 function renderTimeline() {
     if (!totalFrames) {
         timeline.innerHTML = '';
+        renderTimelineRuler();
         return;
     }
     const bars = segments.map(segment => {
@@ -594,6 +609,89 @@ function renderTimeline() {
     // 未标记帧使用中性底色，与保留、舍弃明确区分
     timeline.innerHTML = `<div class="clip-timeline-unmarked"></div>${bars}`;
     updateCursorMarker();
+    renderTimelineRuler();
+}
+
+/**
+ * 时间轴刻度
+ * 刻度间隔按可用宽度挑选，放得下时才显示加粗的时间标签
+ */
+function renderTimelineRuler() {
+    const ruler = document.getElementById('clip-timeline-ruler');
+    if (!ruler) {
+        return;
+    }
+    const totalMs = totalFrames > 0 ? frameRangeMs(0, totalFrames) : 0;
+    const width = ruler.clientWidth;
+    if (totalMs <= 0 || width <= 0) {
+        ruler.innerHTML = '';
+        return;
+    }
+    const interval = pickTickInterval(totalMs, width);
+    const spacing = (interval / totalMs) * width;
+    const ticks = [];
+    for (let time = 0; time <= totalMs; time += interval) {
+        const left = (time / totalMs) * 100;
+        const position = time === 0 ? ' first' : (time + interval > totalMs ? ' last' : '');
+        ticks.push({time, left, position});
+    }
+    // 间距不够时只画刻度线，避免标签互相压住
+    ruler.innerHTML = buildTicks(ticks, spacing >= TICK_LABEL_MIN_SPACING);
+    if (spacing >= TICK_LABEL_MIN_SPACING && rulerLabelsOverlap(ruler)) {
+        ruler.innerHTML = buildTicks(ticks, false);
+    }
+}
+
+/**
+ * 生成刻度
+ */
+function buildTicks(ticks, labelled) {
+    return ticks.map(tick => `<span class="clip-tick${labelled ? ' labelled' : ''}${tick.position}" style="left:${tick.left}%">
+            <span class="clip-tick-line"></span>
+            ${labelled ? `<span class="clip-tick-label">${formatTickTime(tick.time)}</span>` : ''}
+        </span>`).join('');
+}
+
+/**
+ * 刻度标签是否互相压住
+ */
+function rulerLabelsOverlap(ruler) {
+    const boxes = Array.from(ruler.querySelectorAll('.clip-tick-label'))
+        .map(label => label.getBoundingClientRect());
+    for (let i = 1; i < boxes.length; i++) {
+        if (boxes[i].left < boxes[i - 1].right) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/**
+ * 挑选刻度间隔
+ * 取能让相邻刻度留出足够间距的最小间隔
+ */
+function pickTickInterval(totalMs, width) {
+    for (const interval of TICK_INTERVALS) {
+        if ((interval / totalMs) * width >= TICK_LABEL_MIN_SPACING) {
+            return interval;
+        }
+    }
+    return TICK_INTERVALS[TICK_INTERVALS.length - 1];
+}
+
+/**
+ * 刻度上的时间标签
+ * 不到一小时显示分秒，超过一小时带上小时
+ */
+function formatTickTime(ms) {
+    const total = Math.floor(ms / 1000);
+    const hours = Math.floor(total / 3600);
+    const minutes = Math.floor((total % 3600) / 60);
+    const seconds = total % 60;
+    if (hours > 0) {
+        return `${hours}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+    }
+    return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
 }
 
 function renderSegmentList() {
@@ -629,6 +727,7 @@ function refreshStrip() {
     renderStrip();
     pruneThumbnails();
     scheduleThumbnails();
+    refreshStripCycle();
 }
 
 /**
@@ -658,6 +757,62 @@ function renderStrip() {
                      data-frame="${frame}"
                      style="width:${width}px;height:${height}px">${image}</div>`;
     }).join('');
+}
+
+/**
+ * 中间图区域轮播
+ * 三张图都加载完成后开始轮播，像 GIF 一样依次显示；
+ * 播放中或图片未就位时暂停
+ */
+function refreshStripCycle() {
+    const frames = [cursor - STRIP_SIDE_OFFSET, cursor, cursor + STRIP_SIDE_OFFSET]
+        .filter(frame => frame >= 0 && frame <= totalFrames - 1);
+    const ready = frames.length === 3 && frames.every(frame => bestThumbnail(frame));
+    if (!ready || !video.paused) {
+        stopStripCycle();
+        return;
+    }
+    if (stripCycleTimer && stripCycleFrames.join() === frames.join()) {
+        return;
+    }
+    stopStripCycle();
+    stripCycleFrames = frames;
+    stripCycleIndex = frames.indexOf(cursor);
+    stripCycleTimer = setInterval(() => {
+        stripCycleIndex = (stripCycleIndex + 1) % stripCycleFrames.length;
+        showMiddleFrame(stripCycleFrames[stripCycleIndex]);
+    }, STRIP_CYCLE_INTERVAL);
+}
+
+/**
+ * 停止轮播
+ */
+function stopStripCycle() {
+    if (stripCycleTimer) {
+        clearInterval(stripCycleTimer);
+        stripCycleTimer = null;
+    }
+    stripCycleFrames = [];
+    stripCycleIndex = 0;
+}
+
+/**
+ * 中间图区域显示指定帧
+ */
+function showMiddleFrame(frame) {
+    const item = strip.querySelector('.clip-strip-item.current');
+    if (!item) {
+        return;
+    }
+    const url = bestThumbnail(frame);
+    if (!url) {
+        return;
+    }
+    const image = item.querySelector('img');
+    if (image && image.getAttribute('src') === url) {
+        return;
+    }
+    item.innerHTML = `<img src="${url}" alt="第${frame}帧">`;
 }
 
 /**
@@ -885,9 +1040,11 @@ function applyThumbnail(frame) {
     }
     const image = item.querySelector('img');
     if (image && image.getAttribute('src') === url) {
+        refreshStripCycle();
         return;
     }
     item.innerHTML = `<img src="${url}" alt="第${frame}帧">`;
+    refreshStripCycle();
 }
 
 /**
@@ -956,6 +1113,7 @@ function dropThumbnail(key) {
  */
 function releaseThumbnails() {
     thumbnailEpoch++;
+    stopStripCycle();
     for (const [, entry] of thumbnails) {
         URL.revokeObjectURL(entry.url);
     }

@@ -40,6 +40,7 @@ class StaticPageIntegrationTest {
                 .andExpect(content().string(containsString("id=\"clip-video\"")))
                 .andExpect(content().string(containsString("id=\"clip-strip\"")))
                 .andExpect(content().string(containsString("id=\"clip-timeline\"")))
+                .andExpect(content().string(containsString("id=\"clip-timeline-ruler\"")))
                 // 保留与舍弃区间统一由时间轴表示，不再单独渲染条带
                 .andExpect(content().string(not(containsString("id=\"clip-keep-band\""))))
                 .andExpect(content().string(not(containsString("id=\"clip-drop-band\""))))
