@@ -17,6 +17,7 @@ const startRenderBtn = document.getElementById('start-render');
 const cancelRenderBtn = document.getElementById('cancel-render');
 const downloadLink = document.getElementById('download-render');
 const renderStatusEl = document.getElementById('render-status');
+const outputPathEl = document.getElementById('render-output-path');
 const shiftLaterBtn = document.getElementById('shift-later');
 const shiftEarlierBtn = document.getElementById('shift-earlier');
 
@@ -440,6 +441,7 @@ function updateRenderCard(job) {
         startRenderBtn.disabled = false;
         cancelRenderBtn.classList.add('hidden');
         downloadLink.classList.add('hidden');
+        outputPathEl.classList.add('hidden');
         return;
     }
 
@@ -461,19 +463,37 @@ function updateRenderCard(job) {
         cancelRenderBtn.classList.add('hidden');
         downloadLink.classList.remove('hidden');
         downloadLink.href = `/api/render-jobs/${job.id}/download`;
+        // 导出完成后显示输出文件的完整路径，方便直接找到文件
+        showOutputPath(job.outputPath);
     } else if (job.status === 'FAILED') {
         renderStatusEl.textContent = `失败：${job.failureMessage || '未知错误'}`;
         renderStatusEl.className = 'render-status error';
         cancelRenderBtn.classList.add('hidden');
         downloadLink.classList.add('hidden');
+        outputPathEl.classList.add('hidden');
         startRenderBtn.disabled = false;
     } else if (job.status === 'CANCELLED') {
         renderStatusEl.textContent = '已取消';
         renderStatusEl.className = 'render-status';
         cancelRenderBtn.classList.add('hidden');
         downloadLink.classList.add('hidden');
+        outputPathEl.classList.add('hidden');
         startRenderBtn.disabled = false;
     }
+}
+
+/**
+ * 显示导出文件的完整路径
+ */
+function showOutputPath(path) {
+    if (!path) {
+        outputPathEl.classList.add('hidden');
+        outputPathEl.textContent = '';
+        return;
+    }
+    outputPathEl.textContent = path;
+    outputPathEl.title = path;
+    outputPathEl.classList.remove('hidden');
 }
 
 function startPolling() {

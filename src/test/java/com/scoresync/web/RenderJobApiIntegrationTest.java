@@ -220,6 +220,21 @@ class RenderJobApiIntegrationTest {
                 .andExpect(jsonPath("$.code").value("RENDER_JOB_ACTIVE"));
     }
 
+    @Test
+    void renderJobResponseIncludesFullOutputPath() throws Exception {
+        long jobId = fakeRenderService.nextJobId();
+        String outputPath = "C:\\data\\exports\\final-2026.mp4";
+        RenderJob job = new RenderJob(jobId, projectId, com.scoresync.domain.ScoreboardTemplate.CLASSIC,
+                RenderJobStatus.SUCCEEDED, 100, outputPath, null,
+                Instant.now(), Instant.now(), Instant.now());
+        fakeRenderService.jobs.put(jobId, job);
+
+        mockMvc.perform(get("/api/render-jobs/{id}", jobId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.outputPath").value(outputPath))
+                .andExpect(jsonPath("$.outputFilename").value("final-2026.mp4"));
+    }
+
     static class FakeRenderJobService extends RenderJobService {
         final AtomicLong idSeq = new AtomicLong(0);
         final java.util.Map<Long, RenderJob> jobs = new java.util.concurrent.ConcurrentHashMap<>();

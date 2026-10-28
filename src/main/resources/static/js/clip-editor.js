@@ -1279,8 +1279,22 @@ async function startExport() {
     }
 }
 
-function pollRenderJob(jobId) {
-    clearInterval(renderPollTimer);
+/**
+ * 显示导出文件的完整路径
+ */
+function showOutputPath(path) {
+    const el = document.getElementById('clip-output-path');
+    if (!path) {
+        el.classList.add('hidden');
+        el.textContent = '';
+        return;
+    }
+    el.textContent = path;
+    el.title = path;
+    el.classList.remove('hidden');
+}
+
+function pollRenderJob(jobId) {    clearInterval(renderPollTimer);
     renderPollTimer = setInterval(async () => {
         try {
             const job = await api(`/api/clip-render-jobs/${jobId}`);
@@ -1293,18 +1307,22 @@ function pollRenderJob(jobId) {
                 link.classList.remove('hidden');
                 document.getElementById('clip-cancel-export').classList.add('hidden');
                 document.getElementById('clip-export').disabled = false;
+                // 导出完成后显示输出文件的完整路径，方便直接找到文件
+                showOutputPath(job.outputPath);
                 showToast('导出完成，已登记到视频库', 'success');
             } else if (job.status === 'FAILED') {
                 clearInterval(renderPollTimer);
                 setRenderStatus('FAILED', '导出失败');
                 document.getElementById('clip-cancel-export').classList.add('hidden');
                 document.getElementById('clip-export').disabled = false;
+                showOutputPath(null);
                 showToast(job.failureMessage || '导出失败', 'error');
             } else if (job.status === 'CANCELLED') {
                 clearInterval(renderPollTimer);
                 setRenderStatus('CANCELLED', '导出已取消');
                 document.getElementById('clip-cancel-export').classList.add('hidden');
                 document.getElementById('clip-export').disabled = false;
+                showOutputPath(null);
             }
         } catch (e) {
             clearInterval(renderPollTimer);

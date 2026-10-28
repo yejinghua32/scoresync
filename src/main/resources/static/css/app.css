@@ -536,6 +536,16 @@ button.danger:hover {
     color: var(--success);
 }
 
+/* 导出完成后显示输出文件的完整路径 */
+.render-output-path {
+    font-size: 0.75rem;
+    color: var(--text-dim);
+    word-break: break-all;
+    user-select: all;
+    margin: -0.25rem 0 0.75rem;
+    font-variant-numeric: tabular-nums;
+}
+
 .render-status.error {
     color: var(--danger);
 }
