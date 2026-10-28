@@ -10,8 +10,6 @@
     --danger: #ef4444;
     --success: #22c55e;
     --warning: #f59e0b;
-    /* 剪辑页当前帧缩略图高度，供前端按实际尺寸推算排布间距 */
-    --clip-strip-item-height: 240px;
 }
 
 * {
@@ -1013,23 +1011,18 @@ button.danger:hover {
     min-height: 100vh;
 }
 
-/* 剪辑页：左列为当前帧、时间轴与片段列表，右列为视频预览与保留帧时间轴 */
+/* 剪辑页：左列为视频预览与时间轴，右列为已存档片段 */
 .clip-main {
     flex: 1 1 auto;
     min-height: 0;
     display: grid;
-    grid-template-columns: minmax(0, 1fr) clamp(360px, 32vw, 760px);
-    grid-template-rows: auto auto minmax(180px, 1fr);
+    grid-template-columns: minmax(0, 1fr) clamp(320px, 24vw, 460px);
+    grid-template-rows: auto auto;
     grid-template-areas:
-        "strip stage"
-        "timeline stage"
-        "segments stage";
+        "stage segments"
+        "timeline segments";
     align-items: start;
     gap: 1rem;
-}
-
-.clip-strip-section {
-    grid-area: strip;
 }
 
 .clip-timeline-section {
@@ -1042,8 +1035,6 @@ button.danger:hover {
     display: flex;
     flex-direction: column;
     gap: 0.5rem;
-    position: sticky;
-    top: 1rem;
 }
 
 .clip-stage {
@@ -1147,50 +1138,6 @@ button.danger:hover {
     letter-spacing: normal;
     font-weight: 400;
     color: var(--text-dim);
-}
-
-/* 缩略图条：当前帧居中，两侧分别是前/后第 3 帧 */
-.clip-strip {
-    position: relative;
-    display: flex;
-    align-items: flex-end;
-    justify-content: center;
-    gap: 12px;
-    height: calc(var(--clip-strip-item-height) + 60px);
-    overflow: hidden;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 0.5rem;
-}
-
-.clip-strip-item {
-    flex: 0 0 auto;
-    pointer-events: none;
-}
-
-/* 视频首尾缺少一侧时保留空位，当前帧仍然居中 */
-.clip-strip-item.empty {
-    visibility: hidden;
-}
-
-.clip-strip-item img,
-.clip-strip-placeholder {
-    display: block;
-    width: 100%;
-    height: 100%;
-    object-fit: contain;
-    border-radius: 4px;
-    border: 1px solid var(--border);
-}
-
-.clip-strip-item.current img {
-    border-color: var(--accent);
-    box-shadow: 0 0 0 2px var(--accent);
-}
-
-.clip-strip-placeholder {
-    background: var(--surface2);
 }
 
 /* 时间轴 */
@@ -1298,7 +1245,6 @@ button.danger:hover {
     display: flex;
     flex-direction: column;
     min-height: 0;
-    margin-top: 0.5rem;
 }
 
 .clip-segment-list {
@@ -1364,10 +1310,11 @@ button.danger:hover {
     color: var(--danger);
 }
 
-/* 大屏幕：放大当前帧缩略图，让左列内容撑满可用宽度 */
-@media (min-width: 1700px) {
-    :root {
-        --clip-strip-item-height: 300px;
+/* 宽屏：视频按可用高度收窄，整列始终留得下 */
+@media (min-width: 1001px) {
+    .clip-stage {
+        max-width: max(320px, calc((100vh - 420px) * 16 / 9));
+        margin: 0 auto;
     }
 }
 
@@ -1376,27 +1323,14 @@ button.danger:hover {
         grid-template-columns: minmax(0, 1fr);
         grid-template-areas:
             "stage"
-            "strip"
             "timeline"
             "segments";
-    }
-
-    .clip-stage-section {
-        position: static;
     }
 }
 
 @media (max-width: 640px) {
     .clip-header-controls {
         width: 100%;
-    }
-
-    :root {
-        --clip-strip-item-height: 150px;
-    }
-
-    .clip-strip-placeholder {
-        width: 200px;
     }
 }
 

@@ -44,11 +44,13 @@ class StaticPageIntegrationTest {
         mockMvc.perform(get("/clip-editor.html"))
                 .andExpect(status().isOk())
                 .andExpect(content().string(containsString("id=\"clip-video\"")))
-                .andExpect(content().string(containsString("id=\"clip-strip\"")))
                 .andExpect(content().string(containsString("id=\"clip-timeline\"")))
                 .andExpect(content().string(containsString("id=\"clip-timeline-ruler\"")))
                 .andExpect(content().string(containsString("id=\"clip-keep-timeline\"")))
                 .andExpect(content().string(containsString("id=\"clip-keep-timeline-ruler\"")))
+                // 当前帧缩略图条已取消，片段列表放在右侧
+                .andExpect(content().string(not(containsString("id=\"clip-strip\""))))
+                .andExpect(content().string(containsString("id=\"clip-segment-list\"")))
                 // 保留与舍弃区间统一由时间轴表示，不再单独渲染条带
                 .andExpect(content().string(not(containsString("id=\"clip-keep-band\""))))
                 .andExpect(content().string(not(containsString("id=\"clip-drop-band\""))))

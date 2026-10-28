@@ -58,7 +58,7 @@
 
 - **剪辑项目（`clip_project`）** 绑定一个 `video_asset`，保存项目名、两个步长（大步长默认 10、小步长默认 5）以及建立项目时的源文件大小与修改时间。源文件变化后该指纹不匹配，`ClipSourceValidator` 会拒绝继续编辑与导出（409 `CLIP_SOURCE_CHANGED`），项目本身保留。
 - **片段（`clip_segment`）** 是不重叠的 KEEP/DROP 半开区间 `[startFrame, endFrame)`。**未标记帧由区间之间的空隙派生**，不逐帧存库；未标记状态在界面上有独立底色，不会被误显示为舍弃。提交新片段时在一个事务内拆分旧区间、覆盖、合并相邻同类区间。
-- **帧索引** 由 `ClipFrameIndexService` 用 ffprobe 逐帧读取显示时间戳建立，**不依赖平均帧率换算**（兼容可变帧率）。索引与缩略图缓存位于 `${SCORESYNC_DATA_DIR}/clip-cache`，按资产 ID + 文件大小 + 修改时间失效；索引在后台线程建立，不阻塞启动。
+- **帧索引** 由 `ClipFrameIndexService` 用 ffprobe 逐帧读取显示时间戳建立，**不依赖平均帧率换算**（兼容可变帧率）。索引与缩略图缓存位于 `${SCORESYNC_DATA_DIR}/clip-cache`，按资产 ID + 文件大小 + 修改时间失效；索引在后台线程建立，不阻塞启动。剪辑页已取消当前帧缩略图条，缩略图接口（`/api/clip-projects/{id}/frames/{n}/thumbnail`）与缓存仍在，但页面不再调用。
 - **导出** 由 `ClipFfmpegCommandFactory` 用 `select` 滤镜按**解码帧序号**精确选帧，再用分段 `setpts` 把各段时间轴接成连续序列；音频按帧索引给出的时间戳切取对应区间后同样重排。**全程重新编码**，不用关键帧 `-c copy`，也不按 `frameRate × seconds` 近似选帧。无音轨的源视频走单独的 `-an` 分支。
 - 导出成功后先校验文件，再通过 `VideoLibraryService.registerExported` 以 `SCANNED` 类型登记回视频库；失败或取消不登记并清理半成品。重复导出按任务 ID 生成不同文件名与新资产，不覆盖既有结果。
 
