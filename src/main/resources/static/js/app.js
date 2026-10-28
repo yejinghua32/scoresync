@@ -6,6 +6,8 @@ let projectPage = {page: 0, size: 10, total: 0, totalPages: 0, items: []};
 let teamMembers = [];
 let templates = [];
 let clipProjects = [];
+/** 剪辑项目搜索关键字 */
+let clipProjectSearch = '';
 
 document.addEventListener('DOMContentLoaded', async () => {
     initNavigation();
@@ -34,17 +36,26 @@ async function loadClipProjects() {
     }
 }
 
+/**
+ * 渲染剪辑项目列表
+ * 按搜索关键字过滤项目名与视频名
+ */
 function renderClipProjects() {
     const tbody = document.getElementById('clip-project-list');
     if (!tbody) {
         return;
     }
-    document.getElementById('clip-project-count').textContent = clipProjects.length;
-    if (clipProjects.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--text-dim)">暂无剪辑项目</td></tr>';
+    const keyword = clipProjectSearch.trim().toLowerCase();
+    const visible = keyword
+        ? clipProjects.filter(p => (p.name || '').toLowerCase().includes(keyword)
+            || (p.videoName || '').toLowerCase().includes(keyword))
+        : clipProjects;
+    document.getElementById('clip-project-count').textContent = visible.length;
+    if (visible.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="5" style="text-align:center;color:var(--text-dim)">${keyword ? '没有匹配的剪辑项目' : '暂无剪辑项目'}</td></tr>`;
         return;
     }
-    tbody.innerHTML = clipProjects.map(p => {
+    tbody.innerHTML = visible.map(p => {
         const created = p.createdAt ? new Date(p.createdAt).toLocaleString('zh-CN') : '-';
         return `<tr class="clickable" onclick="openClipProject(${p.id})">
       <td class="name" title="${escapeHtml(p.name)}">${escapeHtml(p.name)}</td>
@@ -55,6 +66,11 @@ function renderClipProjects() {
     </tr>`;
     }).join('');
 }
+
+document.getElementById('clip-project-search').addEventListener('input', (event) => {
+    clipProjectSearch = event.target.value;
+    renderClipProjects();
+});
 
 function openClipProject(id) {
     location.assign(`/clip-editor.html?projectId=${id}`);
@@ -78,7 +94,7 @@ async function deleteClipProject(event, id) {
 window.openClipProject = openClipProject;
 window.deleteClipProject = deleteClipProject;
 
-const VIEWS = ['projects', 'videos', 'settings'];
+const VIEWS = ['projects', 'videos', 'clips', 'settings'];
 
 /**
  * 切换主面板
@@ -102,7 +118,7 @@ function switchView(view, syncUrl) {
 
 /**
  * 从地址栏读取要定位的面板
- * 支持 /?view=projects|videos|settings，未指定时回到项目库
+ * 支持 /?view=projects|videos|clips|settings，未指定时回到比分项目
  */
 function viewFromUrl() {
     const requested = new URLSearchParams(location.search).get('view');
@@ -529,6 +545,8 @@ window.deleteSource = async function (id) {
 };
 
 function renderVideos() {
+    // 视频按登记（扫描添加）时间倒序，最新登记的排在最前面
+    assets.sort((a, b) => assetAddedTime(b) - assetAddedTime(a));
     document.getElementById('video-count').textContent = assets.length;
     const tbody = document.getElementById('video-list');
     if (assets.length === 0) {
@@ -554,6 +572,18 @@ function renderVideos() {
       <td class="actions">${actionBtn}<button class="danger delete-btn" onclick="deleteVideo(event, ${a.id})">删除</button></td>
     </tr>`;
     }).join('');
+}
+
+/**
+ * 视频登记（扫描添加）时间
+ * 登记时间为空时按最旧处理
+ */
+function assetAddedTime(asset) {
+    if (!asset || !asset.createdAt) {
+        return 0;
+    }
+    const time = new Date(asset.createdAt).getTime();
+    return Number.isNaN(time) ? 0 : time;
 }
 
 /**

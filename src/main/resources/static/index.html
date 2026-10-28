@@ -15,11 +15,15 @@
     <ul class="nav-menu">
         <li class="nav-item active" data-view="projects">
             <span class="nav-icon">📁</span>
-            <span>项目库</span>
+            <span>比分项目</span>
         </li>
         <li class="nav-item" data-view="videos">
             <span class="nav-icon">🎬</span>
             <span>视频库</span>
+        </li>
+        <li class="nav-item" data-view="clips">
+            <span class="nav-icon">✂️</span>
+            <span>剪辑项目</span>
         </li>
         <li class="nav-item" data-view="settings">
             <span class="nav-icon">⚙️</span>
@@ -31,7 +35,7 @@
 <main class="main-content">
     <div id="view-projects" class="view active">
         <div class="view-header">
-            <h2>项目库</h2>
+            <h2>比分项目</h2>
             <div class="header-actions">
                 <button id="export-backup-all" class="secondary">导出全部备份</button>
                 <label class="btn-secondary">
@@ -44,7 +48,7 @@
             <input type="text" id="project-search" placeholder="搜索项目名称...">
         </div>
         <div class="card">
-            <div class="card-title">项目列表 <span id="project-count" class="count-badge">0</span></div>
+            <div class="card-title">比分项目列表 <span id="project-count" class="count-badge">0</span></div>
             <table class="video-table">
                 <thead>
                 <tr>
@@ -95,8 +99,17 @@
                 <tbody id="video-list"></tbody>
             </table>
         </div>
+        </div>
+
+    <div id="view-clips" class="view">
+        <div class="view-header">
+            <h2>剪辑项目</h2>
+        </div>
+        <div class="search-bar">
+            <input type="text" id="clip-project-search" placeholder="搜索剪辑项目或视频名称...">
+        </div>
         <div class="card">
-            <div class="card-title">剪辑项目 <span id="clip-project-count" class="count-badge">0</span></div>
+            <div class="card-title">剪辑项目列表 <span id="clip-project-count" class="count-badge">0</span></div>
             <table class="video-table">
                 <thead>
                 <tr>

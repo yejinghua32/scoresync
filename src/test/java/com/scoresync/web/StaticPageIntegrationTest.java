@@ -26,7 +26,13 @@ class StaticPageIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(content().string(containsString("video-count")))
                 .andExpect(content().string(containsString("id=\"clip-project-list\"")))
-                .andExpect(content().string(containsString("id=\"clip-project-form\"")));
+                .andExpect(content().string(containsString("id=\"clip-project-form\"")))
+                // 比分项目、视频库、剪辑项目各有独立面板
+                .andExpect(content().string(containsString("data-view=\"projects\"")))
+                .andExpect(content().string(containsString("data-view=\"videos\"")))
+                .andExpect(content().string(containsString("data-view=\"clips\"")))
+                .andExpect(content().string(containsString("id=\"view-clips\"")))
+                .andExpect(content().string(containsString("id=\"clip-project-search\"")));
         mockMvc.perform(get("/editor.html"))
                 .andExpect(status().isOk())
                 .andExpect(content().string(containsString("id=\"match-video\"")))
