@@ -7,7 +7,7 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg">
     <link rel="stylesheet" href="/css/app.css">
 </head>
-<body>
+<body class="clip-editor-page">
 <div class="editor-header clip-header">
     <a href="/" class="back-link">← 返回首页</a>
     <h1 id="clip-title">视频剪辑器</h1>
@@ -68,6 +68,18 @@
         <div class="clip-stage">
             <video id="clip-video" controls preload="metadata"></video>
         </div>
+        <section class="clip-keep-section">
+            <div class="clip-section-title clip-keep-title">
+                保留帧时间轴
+                <span class="clip-section-hint">点击定位并只播放保留片段</span>
+                <span id="clip-keep-duration" class="clip-keep-duration"></span>
+            </div>
+            <div class="clip-timeline-wrap">
+                <div id="clip-keep-timeline" class="clip-timeline clip-keep-timeline"></div>
+                <div id="clip-keep-timeline-cursor" class="clip-timeline-cursor hidden"></div>
+            </div>
+            <div id="clip-keep-timeline-ruler" class="clip-timeline-ruler"></div>
+        </section>
         <div class="clip-hotkey-hints">
             <span>↑/↓ - 设为保留/舍弃并取大步长（切换时自动存档）</span>
             <span>→ - 追加小步长</span>

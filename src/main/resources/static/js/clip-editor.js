@@ -11,6 +11,7 @@ import {api, escapeHtml} from './api.js';
  * - ← 从暂选末尾减少小步长
  * - Enter 存档暂选，类型不随之切换
  * 暂选只存在于前端内存，按 Enter 或切换类型时才持久化
+ * 视频下方的保留帧时间轴按成片时间定位，播放时只走保留片段
  */
 
 /** 左右两侧显示的帧偏移：当前帧的前/后第 3 帧 */
@@ -80,6 +81,8 @@ const video = document.getElementById('clip-video');
 const timeline = document.getElementById('clip-timeline');
 const strip = document.getElementById('clip-strip');
 const cursorMarker = document.getElementById('clip-timeline-cursor');
+const keepTimeline = document.getElementById('clip-keep-timeline');
+const keepCursorMarker = document.getElementById('clip-keep-timeline-cursor');
 
 document.addEventListener('DOMContentLoaded', init);
 
@@ -97,6 +100,7 @@ async function init() {
 function bindEvents() {
     document.addEventListener('keydown', onKeyDown);
     timeline.addEventListener('click', onTimelineClick);
+    keepTimeline.addEventListener('click', onKeepTimelineClick);
     document.getElementById('clip-segment-list').addEventListener('click', onSegmentClick);
     document.getElementById('clip-save-config').addEventListener('click', saveConfig);
     document.getElementById('clip-export').addEventListener('click', startExport);
@@ -638,6 +642,7 @@ function renderTimeline() {
     if (!totalFrames) {
         timeline.innerHTML = '';
         renderTimelineRuler();
+        renderKeepTimeline();
         return;
     }
     const bars = segments.map(segment => {
@@ -651,6 +656,122 @@ function renderTimeline() {
     timeline.innerHTML = `<div class="clip-timeline-unmarked"></div>${bars}`;
     updateCursorMarker();
     renderTimelineRuler();
+    renderKeepTimeline();
+}
+
+/**
+ * 保留帧总时长（毫秒）
+ */
+function keptTotalMs(keeps = keepSegments()) {
+    return keeps.reduce((sum, segment) => sum + frameRangeMs(segment.startFrame, segment.endFrame), 0);
+}
+
+/**
+ * 渲染保留帧时间轴
+ * 已存档的保留片段按自身时长首尾相接，整条轴的长度就是成片时长；
+ * 点击时按成片时间换算回源视频的帧
+ */
+function renderKeepTimeline() {
+    if (!keepTimeline) {
+        return;
+    }
+    const keeps = keepSegments();
+    const totalMs = keptTotalMs(keeps);
+    const duration = document.getElementById('clip-keep-duration');
+    if (duration) {
+        duration.textContent = totalMs > 0 ? `保留时长 ${formatDuration(totalMs)}` : '';
+    }
+    if (!keeps.length || totalMs <= 0) {
+        keepTimeline.innerHTML = '<div class="clip-keep-empty">暂无保留片段</div>';
+        updateKeepCursor(0, keeps);
+        renderKeepRuler(0);
+        return;
+    }
+    let offset = 0;
+    const bars = keeps.map(segment => {
+        const durationMs = frameRangeMs(segment.startFrame, segment.endFrame);
+        const left = (offset / totalMs) * 100;
+        const width = (durationMs / totalMs) * 100;
+        offset += durationMs;
+        return `<div class="clip-timeline-bar keep"
+                     style="left:${left}%;width:${width}%"
+                     title="保留 ${segment.startFrame}-${segment.endFrame}"></div>`;
+    }).join('');
+    keepTimeline.innerHTML = bars;
+    updateKeepCursor(totalMs, keeps);
+    renderKeepRuler(totalMs);
+}
+
+/**
+ * 当前帧在保留帧时间轴上的成片时间，不在任何保留片段内时返回 null
+ */
+function keepOffsetForFrame(frame, keeps) {
+    let offset = 0;
+    for (const segment of keeps) {
+        if (frame >= segment.startFrame && frame < segment.endFrame) {
+            return offset + (frameTimeMs(frame) - frameTimeMs(segment.startFrame));
+        }
+        offset += frameRangeMs(segment.startFrame, segment.endFrame);
+    }
+    return null;
+}
+
+/**
+ * 保留帧时间轴上的游标
+ */
+function updateKeepCursor(totalMs, keeps = keepSegments()) {
+    if (!keepCursorMarker) {
+        return;
+    }
+    const offset = totalFrames > 0 ? keepOffsetForFrame(cursor, keeps) : null;
+    if (offset === null || totalMs <= 0) {
+        keepCursorMarker.classList.add('hidden');
+        return;
+    }
+    keepCursorMarker.classList.remove('hidden');
+    keepCursorMarker.style.left = `${Math.min(offset / totalMs, 1) * 100}%`;
+}
+
+/**
+ * 点击保留帧时间轴
+ * 按成片时间定位到对应的源帧，并只播放保留片段
+ */
+function onKeepTimelineClick(e) {
+    if (!totalFrames) {
+        return;
+    }
+    const keeps = keepSegments();
+    const totalMs = keptTotalMs(keeps);
+    if (!keeps.length || totalMs <= 0) {
+        return;
+    }
+    const rect = keepTimeline.getBoundingClientRect();
+    if (rect.width <= 0) {
+        return;
+    }
+    const ratio = Math.min(Math.max((e.clientX - rect.left) / rect.width, 0), 0.9999);
+    let remaining = ratio * totalMs;
+    let target = keeps[keeps.length - 1];
+    for (const segment of keeps) {
+        const durationMs = frameRangeMs(segment.startFrame, segment.endFrame);
+        if (remaining < durationMs) {
+            target = segment;
+            break;
+        }
+        remaining -= durationMs;
+    }
+    const sourceMs = frameTimeMs(target.startFrame) + Math.max(0, remaining);
+    const frame = Math.min(target.endFrame - 1,
+        Math.max(target.startFrame, nearestFrame(sourceMs)));
+    pending = null;
+    renderPending();
+    cursor = frame;
+    seekVideoToFrame(frame);
+    // 播放只走保留片段：让跳播预览接管这次手动定位
+    manualPosition = false;
+    updateFrameInfo();
+    refreshStrip();
+    video.play().catch(() => {});
 }
 
 /**
@@ -658,11 +779,21 @@ function renderTimeline() {
  * 刻度间隔按可用宽度挑选，放得下时才显示加粗的时间标签
  */
 function renderTimelineRuler() {
-    const ruler = document.getElementById('clip-timeline-ruler');
+    const totalMs = totalFrames > 0 ? frameRangeMs(0, totalFrames) : 0;
+    renderRuler(document.getElementById('clip-timeline-ruler'), totalMs);
+}
+
+/**
+ * 保留帧时间轴刻度，标签是成片时间
+ */
+function renderKeepRuler(totalMs) {
+    renderRuler(document.getElementById('clip-keep-timeline-ruler'), totalMs);
+}
+
+function renderRuler(ruler, totalMs) {
     if (!ruler) {
         return;
     }
-    const totalMs = totalFrames > 0 ? frameRangeMs(0, totalFrames) : 0;
     const width = ruler.clientWidth;
     if (totalMs <= 0 || width <= 0) {
         ruler.innerHTML = '';
@@ -758,6 +889,7 @@ function updateCursorMarker() {
     }
     const ratio = Math.min(cursor / totalFrames, 1);
     cursorMarker.style.left = `${ratio * 100}%`;
+    updateKeepCursor(keptTotalMs());
 }
 
 /**

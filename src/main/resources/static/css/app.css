@@ -1006,17 +1006,26 @@ button.danger:hover {
     color: var(--success);
 }
 
-/* 剪辑页：左列为当前帧、时间轴与片段列表，右列为视频预览 */
+/* 剪辑页铺满窗口：页头之后由主区域占满剩余高度 */
+.clip-editor-page {
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+}
+
+/* 剪辑页：左列为当前帧、时间轴与片段列表，右列为视频预览与保留帧时间轴 */
 .clip-main {
+    flex: 1 1 auto;
+    min-height: 0;
     display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(340px, 460px);
+    grid-template-columns: minmax(0, 1fr) clamp(360px, 32vw, 760px);
+    grid-template-rows: auto auto minmax(180px, 1fr);
     grid-template-areas:
         "strip stage"
         "timeline stage"
         "segments stage";
     align-items: start;
     gap: 1rem;
-    max-width: 1400px;
 }
 
 .clip-strip-section {
@@ -1027,12 +1036,9 @@ button.danger:hover {
     grid-area: timeline;
 }
 
-.clip-segments-section {
-    grid-area: segments;
-}
-
 .clip-stage-section {
     grid-area: stage;
+    align-self: start;
     display: flex;
     flex-direction: column;
     gap: 0.5rem;
@@ -1088,6 +1094,40 @@ button.danger:hover {
     font-size: 0.75rem;
     color: var(--text-dim);
     line-height: 1.5;
+}
+
+/* 视频下方的保留帧时间轴：保留片段按自身时长首尾相接，刻度为成片时间 */
+.clip-keep-section {
+    display: flex;
+    flex-direction: column;
+}
+
+.clip-keep-title {
+    flex-wrap: wrap;
+}
+
+.clip-keep-duration {
+    margin-left: auto;
+    text-transform: none;
+    letter-spacing: normal;
+    font-weight: 400;
+    color: var(--text-dim);
+    font-variant-numeric: tabular-nums;
+}
+
+/* 相邻的保留片段之间画一条分界线，便于看出拼接位置 */
+.clip-keep-timeline .clip-timeline-bar.keep + .clip-timeline-bar.keep {
+    border-left: 1px solid rgba(11, 15, 26, 0.6);
+}
+
+.clip-keep-empty {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.75rem;
+    color: var(--text-dim);
 }
 
 .clip-section-title {
@@ -1201,10 +1241,10 @@ button.danger:hover {
     z-index: 5;
 }
 
-/* 时间轴刻度：宽度够时显示加粗的时间标签 */
+/* 时间轴刻度：宽度够时显示加粗的时间标签，高度留足避免标签被裁掉 */
 .clip-timeline-ruler {
     position: relative;
-    height: 18px;
+    height: 26px;
     margin-top: 2px;
     overflow: hidden;
 }
@@ -1253,6 +1293,11 @@ button.danger:hover {
 }
 
 .clip-segments-section {
+    grid-area: segments;
+    align-self: stretch;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
     margin-top: 0.5rem;
 }
 
@@ -1260,7 +1305,8 @@ button.danger:hover {
     display: flex;
     flex-direction: column;
     gap: 0.35rem;
-    max-height: 220px;
+    flex: 1 1 auto;
+    min-height: 0;
     overflow-y: auto;
 }
 
@@ -1316,6 +1362,13 @@ button.danger:hover {
 .clip-segment-delete:hover {
     border-color: var(--danger);
     color: var(--danger);
+}
+
+/* 大屏幕：放大当前帧缩略图，让左列内容撑满可用宽度 */
+@media (min-width: 1700px) {
+    :root {
+        --clip-strip-item-height: 300px;
+    }
 }
 
 @media (max-width: 1000px) {
