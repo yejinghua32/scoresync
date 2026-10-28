@@ -12,6 +12,7 @@ import {api, escapeHtml} from './api.js';
  * - Enter 存档暂选，类型不随之切换
  * 暂选只存在于前端内存，按 Enter 或切换类型时才持久化
  * 视频下方的保留帧时间轴按成片时间定位，播放时只走保留片段
+ * 播放期间当前帧缩略图不跟随，暂停后再补到当前位置
  */
 
 /** 左右两侧显示的帧偏移：当前帧的前/后第 3 帧 */
@@ -107,6 +108,10 @@ function bindEvents() {
     document.getElementById('clip-cancel-export').addEventListener('click', cancelExport);
     video.addEventListener('timeupdate', onTimeUpdate);
     video.addEventListener('seeked', onSeeked);
+    // 播放期间当前帧缩略图不跟随：开始播放时定格在起播帧并停掉轮播
+    video.addEventListener('play', refreshStrip);
+    // 暂停后把当前帧缩略图补到最新位置
+    video.addEventListener('pause', refreshStrip);
     // 视频尺寸就绪后按真实比例重排缩略图条
     video.addEventListener('loadedmetadata', renderStrip);
     window.addEventListener('resize', () => {
@@ -559,7 +564,10 @@ function onTimeUpdate() {
     if (frame !== cursor) {
         cursor = frame;
         updateFrameInfo();
-        refreshStrip();
+        // 播放时只更新游标与时间信息，当前帧缩略图保持不动
+        if (video.paused) {
+            refreshStrip();
+        }
     }
     enforceKeepPlayback();
 }
