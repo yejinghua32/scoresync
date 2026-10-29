@@ -5,12 +5,12 @@ import {api, escapeHtml} from './api.js';
  * 左侧是视频预览、保留帧时间轴与源时间轴，右侧是已存档片段列表
  *
  * 交互约定：
- * - ↑/↓ 设定当前暂选类型（保留/舍弃）并向后取大步长
- * - ↑/↓ 切换类型时自动存档上一段尚未存档的暂选
+ * - ↑/↓ 设定当前暂选类型（保留/舍弃）并取大步长，切换类型时只改类型
  * - → 追加小步长
  * - ← 从暂选末尾减少小步长
+ * - Delete 清除暂选并回到上一个片段的最后一帧
  * - Enter 存档暂选，类型不随之切换
- * 暂选只存在于前端内存，按 Enter 或切换类型时才持久化
+ * 暂选只存在于前端内存，按 Enter 才持久化
  * 视频下方的保留帧时间轴按成片时间定位，播放时只走保留片段
  * 左键单击已存档片段定位到它的第一帧，右键定位到最后一帧，双击循环播放该片段；
  * 暂选未存档时加减帧会播放当前帧之前的 1 秒，只播一次
@@ -251,6 +251,10 @@ function onKeyDown(e) {
             e.preventDefault();
             commitPending();
             break;
+        case 'Delete':
+            e.preventDefault();
+            clearPending();
+            break;
         case ' ':
             e.preventDefault();
             togglePlay();
@@ -261,37 +265,53 @@ function onKeyDown(e) {
 }
 
 /**
- * ↑/↓：设定暂选类型并向后取大步长
- * 与当前暂选类型不同即为切换，切换前先把尚未存档的暂选存档
+ * ↑/↓：设定暂选类型
+ * 已有暂选时切换类型只改类型，区间与游标保持不变，也不会自动存档；
+ * 同类型连按向后取大步长；没有暂选时从当前帧开始新建一段暂选
  */
-async function stepSelection(type) {
-    if (totalFrames <= 0 || archiveInFlight) {
+function stepSelection(type) {
+    if (totalFrames <= 0) {
         return;
     }
     clearLoop();
-    let startFrame = cursor;
-    if (pending && pending.type !== type) {
-        // 切换类型前先存档，新暂选紧接着上一段的终点，播放位置可能已经偏移
-        startFrame = pending.end;
-        const saved = await archivePending('已自动存档上一段暂选');
-        if (!saved) {
-            // 存档失败时保留暂选，避免丢帧
-            return;
-        }
-    }
-    if (!pending) {
-        cursor = Math.min(totalFrames, Math.max(0, startFrame));
-        pending = {start: cursor, end: cursor, type};
-    } else {
-        pending.type = type;
-    }
     const step = Math.max(1, largeStep);
-    pending.end = Math.min(totalFrames, pending.end + step);
-    // 游标推进到下一帧，末尾按总帧数截断
-    cursor = Math.min(totalFrames, pending.end);
+    if (!pending) {
+        cursor = Math.min(totalFrames - 1, Math.max(0, cursor));
+        pending = {start: cursor, end: Math.min(totalFrames, cursor + step), type};
+        // 游标推进到下一帧，末尾按总帧数截断
+        cursor = pending.end;
+    } else if (pending.type !== type) {
+        // 切换类型：区间保持原样，只改类型
+        pending.type = type;
+    } else {
+        // 同一类型继续向后取大步长
+        pending.end = Math.min(totalFrames, pending.end + step);
+        cursor = pending.end;
+    }
     renderPending();
     updateFrameInfo();
     seekVideoToFrame(cursor);
+}
+
+/**
+ * Delete：清除暂选，并把当前帧定位到上一个片段的最后一帧
+ * 没有暂选时不做任何操作
+ */
+function clearPending() {
+    if (!pending) {
+        return;
+    }
+    const anchor = pending.start;
+    pending = null;
+    renderPending();
+    // 找到暂选开始之前最近的一个已存档片段，定位到它的最后一帧
+    const previous = segments
+        .filter(segment => segment.endFrame <= anchor)
+        .sort((a, b) => b.endFrame - a.endFrame)[0];
+    const frame = previous
+        ? Math.max(previous.startFrame, previous.endFrame - 1)
+        : Math.max(0, Math.min(totalFrames - 1, anchor - 1));
+    moveCursorTo(frame);
 }
 
 /**
@@ -305,8 +325,8 @@ function extendPending(step) {
     cursor = pending.end;
     renderPending();
     updateFrameInfo();
-    // 暂选尚未存档时，播放当前帧之前的 1 秒
-    playLastSecond(cursor);
+    // 暂选尚未存档时，播放暂选最后一帧之前的 1 秒
+    playLastSecond(pending.end - 1);
 }
 
 /**
@@ -324,9 +344,9 @@ function shrinkPending(step) {
     }
     renderPending();
     updateFrameInfo();
-    // 暂选尚未存档时，播放当前帧之前的 1 秒
+    // 暂选尚未存档时，播放暂选最后一帧之前的 1 秒
     if (pending) {
-        playLastSecond(cursor);
+        playLastSecond(pending.end - 1);
     }
 }
 
