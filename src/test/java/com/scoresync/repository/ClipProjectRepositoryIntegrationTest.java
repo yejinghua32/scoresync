@@ -57,6 +57,7 @@ class ClipProjectRepositoryIntegrationTest {
                   segment_type TEXT NOT NULL CHECK (segment_type IN ('KEEP','DROP')),
                   start_frame INTEGER NOT NULL CHECK (start_frame >= 0),
                   end_frame INTEGER NOT NULL CHECK (end_frame > start_frame),
+                  featured INTEGER NOT NULL DEFAULT 0 CHECK (featured IN (0,1)),
                   created_at TEXT NOT NULL, updated_at TEXT NOT NULL
                 )""");
         jdbc.execute("CREATE INDEX idx_clip_segment_project ON clip_segment(project_id, start_frame)");
@@ -133,6 +134,22 @@ class ClipProjectRepositoryIntegrationTest {
         assertThat(found).extracting(ClipSegment::type)
                 .containsExactly(ClipSegmentType.KEEP, ClipSegmentType.KEEP, ClipSegmentType.DROP);
         assertThat(found.get(0).endFrame()).isEqualTo(50);
+    }
+
+    @Test
+    void storesFeaturedFlagOnSegments() {
+        jdbc.update("INSERT INTO video_asset (id, source_id, absolute_path, display_name, file_size, "
+                + "modified_at, origin_type, created_at, updated_at) VALUES (1, NULL, '/v/a.mp4', 'a.mp4', "
+                + "1024, 99, 'SCANNED', '2026-08-04T00:00:00Z', '2026-08-04T00:00:00Z')");
+        long projectId = projects.insert("第一集", 1L, 10, 5, 1024L, 99L);
+
+        segments.insert(projectId, ClipSegmentType.KEEP, 0, 50, true);
+        segments.insert(projectId, ClipSegmentType.KEEP, 60, 80);
+
+        List<ClipSegment> found = segments.findByProjectId(projectId);
+
+        assertThat(found.get(0).featured()).isTrue();
+        assertThat(found.get(1).featured()).isFalse();
     }
 
     @Test

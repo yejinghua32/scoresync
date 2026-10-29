@@ -153,15 +153,50 @@ public class ClipProjectService {
                 validateSpec(input, totalFrames);
                 merged = overlay(merged, input);
             }
-            segmentRepository.deleteByProjectId(projectId);
-            Instant now = Instant.now();
-            for (ClipSegment segment : merged) {
-                segmentRepository.insert(projectId, segment.type(), segment.startFrame(), segment.endFrame());
-            }
+            rewriteSegments(projectId, merged);
             return segmentRepository.findByProjectId(projectId);
         } finally {
             commitLock.unlock();
         }
+    }
+
+    /**
+     * 设置保留片段的精选状态
+     * 精选是保留片段的持久属性，舍弃片段不能设为精选
+     */
+    @Transactional
+    public ClipProjectDetail setSegmentFeatured(long projectId, long segmentId, boolean featured) {
+        ClipProject project = projectRepository.findById(projectId);
+        ClipSegment segment = requireOwnedSegment(projectId, segmentId);
+        if (segment.type() != ClipSegmentType.KEEP) {
+            throw new DomainValidationException("只有保留片段可以设为精选");
+        }
+        sourceValidator.requireUnchangedSource(project);
+        if (project.frameIndexStatus() != ClipFrameIndexStatus.READY) {
+            throw new DomainValidationException("帧索引尚未建立完成，暂时无法设置精选");
+        }
+        applySpec(projectId, segment,
+                new ClipSegmentSpec(segment.type(), segment.startFrame(), segment.endFrame(), featured));
+        return detail(projectId);
+    }
+
+    /**
+     * 调整已存档片段的起止帧
+     * 片段类型与精选状态保持不变，先移除原区间再按覆盖规则写回，
+     * 因此缩短后腾出的帧回到未标记状态
+     */
+    @Transactional
+    public ClipProjectDetail updateSegmentBounds(long projectId, long segmentId, int startFrame, int endFrame) {
+        ClipProject project = projectRepository.findById(projectId);
+        ClipSegment segment = requireOwnedSegment(projectId, segmentId);
+        sourceValidator.requireUnchangedSource(project);
+        if (project.frameIndexStatus() != ClipFrameIndexStatus.READY || project.totalFrames() == null) {
+            throw new DomainValidationException("帧索引尚未建立完成，暂时无法修改片段边界");
+        }
+        validateRange(startFrame, endFrame, project.totalFrames());
+        applySpec(projectId, segment,
+                new ClipSegmentSpec(segment.type(), startFrame, endFrame, segment.featured()));
+        return detail(projectId);
     }
 
     /**
@@ -200,14 +235,63 @@ public class ClipProjectService {
         if (spec == null || spec.type() == null) {
             throw new DomainValidationException("片段类型只能是 KEEP 或 DROP");
         }
-        if (spec.startFrame() < 0) {
+        validateRange(spec.startFrame(), spec.endFrame(), totalFrames);
+    }
+
+    /**
+     * 校验片段的帧区间
+     */
+    private void validateRange(int startFrame, int endFrame, int totalFrames) {
+        if (startFrame < 0) {
             throw new DomainValidationException("片段起始帧不能为负数");
         }
-        if (spec.endFrame() <= spec.startFrame()) {
+        if (endFrame <= startFrame) {
             throw new DomainValidationException("片段结束帧必须大于起始帧");
         }
-        if (spec.endFrame() > totalFrames) {
+        if (endFrame > totalFrames) {
             throw new DomainValidationException("片段超出视频帧范围（总帧数 " + totalFrames + "）");
+        }
+    }
+
+    /**
+     * 读取属于指定项目的片段，不属于该项目时按不存在处理
+     */
+    private ClipSegment requireOwnedSegment(long projectId, long segmentId) {
+        ClipSegment segment = segmentRepository.findById(segmentId);
+        if (segment.projectId() != projectId) {
+            throw new DomainNotFoundException("剪辑片段不存在");
+        }
+        return segment;
+    }
+
+    /**
+     * 用新的区间替换一个已存档片段
+     * 先移除原区间，再按覆盖规则写回，因此缩短后腾出的帧回到未标记状态，
+     * 邻段未被覆盖的残段保留各自的类型与精选状态
+     */
+    private void applySpec(long projectId, ClipSegment segment, ClipSegmentSpec spec) {
+        commitLock.lock();
+        try {
+            List<ClipSegment> remaining = new ArrayList<>();
+            for (ClipSegment existing : segmentRepository.findByProjectId(projectId)) {
+                if (existing.id() != segment.id()) {
+                    remaining.add(existing);
+                }
+            }
+            rewriteSegments(projectId, overlay(remaining, spec));
+        } finally {
+            commitLock.unlock();
+        }
+    }
+
+    /**
+     * 全量重写项目的片段，片段 ID 因此会变化
+     */
+    private void rewriteSegments(long projectId, List<ClipSegment> segments) {
+        segmentRepository.deleteByProjectId(projectId);
+        for (ClipSegment segment : segments) {
+            segmentRepository.insert(projectId, segment.type(), segment.startFrame(),
+                    segment.endFrame(), segment.featured());
         }
     }
 
@@ -230,14 +314,16 @@ public class ClipProjectService {
             }
         }
         result.add(new ClipSegment(0L, 0L, input.type(), input.startFrame(), input.endFrame(),
-                Instant.now(), Instant.now()));
+                input.featured(), Instant.now(), Instant.now()));
         result.sort(Comparator.comparingInt(ClipSegment::startFrame));
 
         List<ClipSegment> merged = new ArrayList<>();
         for (ClipSegment segment : result) {
             if (!merged.isEmpty()) {
                 ClipSegment last = merged.get(merged.size() - 1);
-                if (last.type() == segment.type() && last.endFrame() == segment.startFrame()) {
+                // 类型与精选状态都相同的相邻区间才合并，避免精选边界被合并抹去
+                if (last.type() == segment.type() && last.featured() == segment.featured()
+                        && last.endFrame() == segment.startFrame()) {
                     merged.set(merged.size() - 1, copy(last, last.startFrame(), segment.endFrame()));
                     continue;
                 }
@@ -249,7 +335,7 @@ public class ClipProjectService {
 
     private ClipSegment copy(ClipSegment segment, int startFrame, int endFrame) {
         return new ClipSegment(segment.id(), segment.projectId(), segment.type(),
-                startFrame, endFrame, segment.createdAt(), segment.updatedAt());
+                startFrame, endFrame, segment.featured(), segment.createdAt(), segment.updatedAt());
     }
 
     /**

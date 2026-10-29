@@ -46,6 +46,10 @@ let manualPosition = false;
 let loopRange = null;
 /** 循环边界的检查定时器 */
 let loopTimer = null;
+/** 当前帧所在的已存档片段 ID，null 表示当前帧落在未标记的空隙里 */
+let activeSegmentId = null;
+/** 正在编辑边界的片段 ID */
+let editingSegmentId = null;
 
 const video = document.getElementById('clip-video');
 const timeline = document.getElementById('clip-timeline');
@@ -76,6 +80,7 @@ function bindEvents() {
     document.getElementById('clip-save-config').addEventListener('click', saveConfig);
     document.getElementById('clip-export').addEventListener('click', startExport);
     document.getElementById('clip-cancel-export').addEventListener('click', cancelExport);
+    document.getElementById('clip-export-mode').addEventListener('change', updateExportAvailability);
     video.addEventListener('timeupdate', onTimeUpdate);
     video.addEventListener('seeked', onSeeked);
     // 暂停后结束循环预览
@@ -444,14 +449,8 @@ async function doArchivePending(message) {
             method: 'POST',
             body: JSON.stringify({segments: [segment]})
         });
-        segments = updated.segments || [];
-        project = {...project, segments};
         pending = null;
-        renderSegments();
-        renderPending();
-        renderTimeline();
-        updateFrameInfo();
-        updateExportAvailability();
+        applySegments(updated);
         showToast(message, 'success');
         return true;
     } catch (e) {
@@ -582,10 +581,46 @@ function onTimelineClick(e) {
 }
 
 /**
- * 左键单击已存档片段：定位到该片段的第一帧
- * 片段是半开区间 [startFrame, endFrame)
+ * 已存档片段列表的点击处理
+ * 编辑控件优先处理，编辑区域内的其它点击不会触发行定位
  */
 function onSegmentClick(e) {
+    const featuredButton = e.target.closest('.clip-segment-featured');
+    if (featuredButton) {
+        toggleFeatured(Number(featuredButton.dataset.id));
+        return;
+    }
+    const editToggle = e.target.closest('.clip-segment-edit-toggle');
+    if (editToggle) {
+        editingSegmentId = Number(editToggle.dataset.id);
+        renderSegmentList();
+        return;
+    }
+    const stepButton = e.target.closest('.clip-segment-step');
+    if (stepButton) {
+        stepEditField(Number(stepButton.dataset.id), stepButton.dataset.field, Number(stepButton.dataset.delta));
+        return;
+    }
+    const useButton = e.target.closest('.clip-segment-use');
+    if (useButton) {
+        useCurrentFrame(Number(useButton.dataset.id), useButton.dataset.field);
+        return;
+    }
+    const saveButton = e.target.closest('.clip-segment-save');
+    if (saveButton) {
+        saveSegmentBounds(Number(saveButton.dataset.id));
+        return;
+    }
+    const cancelButton = e.target.closest('.clip-segment-cancel');
+    if (cancelButton) {
+        editingSegmentId = null;
+        renderSegmentList();
+        return;
+    }
+    // 编辑区域内的其余点击不触发行定位
+    if (e.target.closest('.clip-segment-edit')) {
+        return;
+    }
     const removeButton = e.target.closest('.clip-segment-delete');
     if (removeButton) {
         deleteSegment(Number(removeButton.dataset.id));
@@ -609,6 +644,9 @@ function onSegmentClick(e) {
  * 右键单击已存档片段：定位到该片段的最后一帧
  */
 function onSegmentContextMenu(e) {
+    if (e.target.closest('.clip-segment-edit')) {
+        return;
+    }
     const item = e.target.closest('.clip-segment-item');
     if (!item) {
         return;
@@ -628,7 +666,7 @@ function onSegmentContextMenu(e) {
  * 双击已存档片段：循环播放该片段
  */
 function onSegmentDoubleClick(e) {
-    if (e.target.closest('.clip-segment-delete')) {
+    if (e.target.closest('.clip-segment-edit, .clip-segment-delete, .clip-segment-featured, .clip-segment-edit-toggle')) {
         return;
     }
     const item = e.target.closest('.clip-segment-item');
@@ -646,6 +684,91 @@ function onSegmentDoubleClick(e) {
 }
 
 /**
+ * 切换保留片段的精选状态
+ * 精选状态由服务端持久化，失败时列表保持原状
+ */
+async function toggleFeatured(segmentId) {
+    const segment = segments.find(item => item.id === segmentId);
+    if (!segment) {
+        return;
+    }
+    try {
+        const updated = await api(`/api/clip-projects/${project.id}/segments/${segmentId}`, {
+            method: 'PATCH',
+            body: JSON.stringify({featured: !segment.featured})
+        });
+        applySegments(updated);
+        showToast(segment.featured ? '已取消精选' : '已设为精选', 'success');
+    } catch (e) {
+        showToast(e.message, 'error');
+    }
+}
+
+/**
+ * 保存片段的起止帧
+ * 失败时保留编辑草稿，供用户修正后重试
+ */
+async function saveSegmentBounds(segmentId) {
+    const segment = segments.find(item => item.id === segmentId);
+    if (!segment) {
+        return;
+    }
+    const startInput = document.getElementById(`clip-edit-start-${segmentId}`);
+    const endInput = document.getElementById(`clip-edit-end-${segmentId}`);
+    if (!startInput || !endInput) {
+        return;
+    }
+    const startFrame = parseInt(startInput.value, 10);
+    const endFrame = parseInt(endInput.value, 10);
+    if (!Number.isFinite(startFrame) || !Number.isFinite(endFrame)) {
+        showToast('起止帧必须是整数', 'error');
+        return;
+    }
+    try {
+        const updated = await api(`/api/clip-projects/${project.id}/segments/${segmentId}`, {
+            method: 'PUT',
+            body: JSON.stringify({startFrame, endFrame})
+        });
+        editingSegmentId = null;
+        applySegments(updated);
+        showToast('片段边界已更新', 'success');
+    } catch (e) {
+        showToast(e.message, 'error');
+    }
+}
+
+/**
+ * 边界输入框逐帧增减
+ */
+function stepEditField(segmentId, field, delta) {
+    const input = document.getElementById(`clip-edit-${field === 'startFrame' ? 'start' : 'end'}-${segmentId}`);
+    if (!input) {
+        return;
+    }
+    const current = parseInt(input.value, 10);
+    if (!Number.isFinite(current)) {
+        return;
+    }
+    input.value = String(Math.max(0, current + delta));
+}
+
+/**
+ * 把边界设为当前帧
+ * 结束帧不含当前帧，设为当前帧时取当前帧 + 1
+ */
+function useCurrentFrame(segmentId, field) {
+    const input = document.getElementById(`clip-edit-${field === 'startFrame' ? 'start' : 'end'}-${segmentId}`);
+    if (!input) {
+        return;
+    }
+    if (field === 'startFrame') {
+        input.value = String(cursor);
+    } else {
+        input.value = String(Math.min(totalFrames, cursor + 1));
+    }
+}
+
+/**
  * 删除一个已存档片段
  * 该区间的帧回到未标记状态
  */
@@ -653,26 +776,37 @@ async function deleteSegment(segmentId) {
     if (!project || !Number.isFinite(segmentId)) {
         return;
     }
-    const segment = segments.find(item => item.id === segmentId);
-    if (!segment) {
-        return;
-    }
-    if (!confirm(`确定删除片段「${segment.startFrame} - ${segment.endFrame}」吗？该区间的帧会回到未标记状态。`)) {
+    if (!segments.some(item => item.id === segmentId)) {
         return;
     }
     clearLoop();
     try {
         const updated = await api(`/api/clip-projects/${project.id}/segments/${segmentId}`, {method: 'DELETE'});
-        segments = updated.segments || [];
-        project = {...project, segments};
-        renderSegments();
-        renderTimeline();
-        updateFrameInfo();
-        updateExportAvailability();
+        if (editingSegmentId === segmentId) {
+            editingSegmentId = null;
+        }
+        applySegments(updated);
         showToast('片段已删除', 'success');
     } catch (e) {
         showToast(e.message, 'error');
     }
+}
+
+/**
+ * 用服务端返回的项目详情刷新片段列表
+ * 片段 ID 可能因合并或重写发生变化，因此整体替换而不是局部更新
+ */
+function applySegments(updated) {
+    segments = updated.segments || [];
+    project = {...project, segments};
+    // 片段 ID 会因重写变化，正在编辑的片段若已不存在则关闭编辑面板
+    if (editingSegmentId !== null && !segments.some(item => item.id === editingSegmentId)) {
+        editingSegmentId = null;
+    }
+    renderSegments();
+    renderPending();
+    updateFrameInfo();
+    updateExportAvailability();
 }
 
 /**
@@ -758,7 +892,10 @@ function renderSegments() {
         summary.textContent = '';
         return;
     }
-    summary.textContent = `保留 ${keptFrames} 帧 / ${formatDuration(keptMs)} · 视频总时长 ${formatDuration(frameRangeMs(0, totalFrames))}`;
+    const featured = featuredSegments().length;
+    summary.textContent = `保留 ${keptFrames} 帧 / ${formatDuration(keptMs)}`
+        + ` · 精选 ${featured} 段`
+        + ` · 视频总时长 ${formatDuration(frameRangeMs(0, totalFrames))}`;
 }
 
 /**
@@ -1001,19 +1138,114 @@ function formatTickTime(ms) {
 
 function renderSegmentList() {
     const list = document.getElementById('clip-segment-list');
+    // 重绘后保留滚动位置，避免刷新列表时跳回顶部
+    const scrollTop = list.scrollTop;
     if (!segments.length) {
         list.innerHTML = '<div class="empty-tip">暂无已存档片段</div>';
+        activeSegmentId = null;
         return;
     }
     list.innerHTML = segments.map(segment => `
-    <div class="clip-segment-item ${segment.type === 'KEEP' ? 'keep' : 'drop'}"
+    <div class="clip-segment-item ${segment.type === 'KEEP' ? 'keep' : 'drop'}${segment.featured ? ' featured' : ''}"
          data-id="${segment.id}" data-start="${segment.startFrame}" data-end="${segment.endFrame}"
          title="左键定位到首帧，右键定位到末帧，双击循环播放">
-      <span class="clip-segment-type">${segment.type === 'KEEP' ? '保留' : '舍弃'}</span>
-      <span class="clip-segment-range">${segment.startFrame} - ${segment.endFrame}</span>
-      <span class="clip-segment-count">${segment.endFrame - segment.startFrame} 帧 / ${formatDuration(frameRangeMs(segment.startFrame, segment.endFrame))}</span>
-      <button class="clip-segment-delete" data-id="${segment.id}" title="删除该片段">删除</button>
+      <div class="clip-segment-main">
+        <span class="clip-segment-type">${segment.type === 'KEEP' ? '保留' : '舍弃'}</span>
+        <span class="clip-segment-range">${segment.startFrame} - ${segment.endFrame}</span>
+        <span class="clip-segment-count">${segment.endFrame - segment.startFrame} 帧 / ${formatDuration(frameRangeMs(segment.startFrame, segment.endFrame))}</span>
+        <span class="clip-segment-actions">
+          ${segment.type === 'KEEP' ? `
+          <button class="clip-segment-featured${segment.featured ? ' on' : ''}" data-id="${segment.id}"
+                  title="${segment.featured ? '取消精选' : '设为精选'}">${segment.featured ? '★ 精选' : '☆ 精选'}</button>` : ''}
+          <button class="clip-segment-edit-toggle" data-id="${segment.id}" title="调整起止帧">编辑</button>
+          <button class="clip-segment-delete" data-id="${segment.id}" title="删除该片段">删除</button>
+        </span>
+      </div>
+      ${editingSegmentId === segment.id ? renderSegmentEdit(segment) : ''}
     </div>`).join('');
+    list.scrollTop = scrollTop;
+    syncActiveSegment();
+}
+
+/**
+ * 片段边界的编辑面板
+ * 起始帧含、结束帧不含，因此结束帧设为当前帧时取当前帧 + 1
+ */
+function renderSegmentEdit(segment) {
+    const lastFrame = Math.max(0, totalFrames - 1);
+    return `
+    <div class="clip-segment-edit" data-id="${segment.id}">
+      <div class="clip-segment-edit-row">
+        <span class="clip-segment-edit-label">起始帧</span>
+        <button class="clip-segment-step" data-id="${segment.id}" data-field="startFrame" data-delta="-1">-1</button>
+        <input type="number" id="clip-edit-start-${segment.id}" class="clip-segment-input"
+               data-field="startFrame" value="${segment.startFrame}" min="0" max="${lastFrame}">
+        <button class="clip-segment-step" data-id="${segment.id}" data-field="startFrame" data-delta="1">+1</button>
+        <button class="clip-segment-use" data-id="${segment.id}" data-field="startFrame" title="把起始帧设为当前帧">当前帧</button>
+      </div>
+      <div class="clip-segment-edit-row">
+        <span class="clip-segment-edit-label">结束帧</span>
+        <button class="clip-segment-step" data-id="${segment.id}" data-field="endFrame" data-delta="-1">-1</button>
+        <input type="number" id="clip-edit-end-${segment.id}" class="clip-segment-input"
+               data-field="endFrame" value="${segment.endFrame}" min="1" max="${totalFrames}">
+        <button class="clip-segment-step" data-id="${segment.id}" data-field="endFrame" data-delta="1">+1</button>
+        <button class="clip-segment-use" data-id="${segment.id}" data-field="endFrame" title="把结束帧设为当前帧之后">当前帧</button>
+      </div>
+      <p class="clip-segment-edit-note">起始帧含、结束帧不含；结束帧取当前帧时为当前帧 + 1。</p>
+      <div class="clip-segment-edit-actions">
+        <button class="clip-segment-save" data-id="${segment.id}">保存</button>
+        <button class="clip-segment-cancel" data-id="${segment.id}">取消</button>
+      </div>
+    </div>`;
+}
+
+/**
+ * 同步当前帧所在的已存档片段
+ * 只包含当前帧的半开区间会被高亮，落在未标记空隙时清除高亮
+ */
+function syncActiveSegment() {
+    const list = document.getElementById('clip-segment-list');
+    if (!list) {
+        return;
+    }
+    let active = null;
+    for (const segment of segments) {
+        if (segment.startFrame <= cursor && cursor < segment.endFrame) {
+            active = segment;
+            break;
+        }
+    }
+    const nextId = active ? active.id : null;
+    list.querySelectorAll('.clip-segment-item').forEach(item => {
+        item.classList.toggle('active', Number(item.dataset.id) === nextId);
+    });
+    // 选中项没有变化时不滚动，避免播放时列表抖动
+    if (nextId === activeSegmentId) {
+        return;
+    }
+    activeSegmentId = nextId;
+    if (nextId === null) {
+        return;
+    }
+    const element = list.querySelector(`.clip-segment-item[data-id="${nextId}"]`);
+    if (element) {
+        scrollSegmentIntoView(element);
+    }
+}
+
+/**
+ * 把选中的片段滚动到列表可见范围内
+ * 只滚动片段列表自身，不影响页面其它位置
+ */
+function scrollSegmentIntoView(element) {
+    const list = document.getElementById('clip-segment-list');
+    const top = element.offsetTop;
+    const bottom = top + element.offsetHeight;
+    if (top < list.scrollTop) {
+        list.scrollTop = top;
+    } else if (bottom > list.scrollTop + list.clientHeight) {
+        list.scrollTop = bottom - list.clientHeight;
+    }
 }
 
 function updateCursorMarker() {
@@ -1071,13 +1303,42 @@ function updateFrameInfo() {
     document.getElementById('clip-video-time').textContent =
         totalFrames > 0 ? `时间 ${(frameTimeMs(cursor) / 1000).toFixed(3)} 秒` : '';
     updateCursorMarker();
+    syncActiveSegment();
+}
+
+/**
+ * 当前的导出范围
+ */
+function exportMode() {
+    const select = document.getElementById('clip-export-mode');
+    return select && select.value === 'FEATURED' ? 'FEATURED' : 'ALL';
+}
+
+/**
+ * 精选的保留片段
+ */
+function featuredSegments() {
+    return keepSegments().filter(segment => segment.featured);
 }
 
 function updateExportAvailability() {
     const button = document.getElementById('clip-export');
-    const hasKeep = keepSegments().length > 0;
-    button.disabled = !hasKeep;
-    button.title = hasKeep ? '' : '没有保留任何片段，无法导出';
+    const hint = document.getElementById('clip-export-hint');
+    const keeps = keepSegments();
+    let reason = '';
+    if (exportMode() === 'FEATURED') {
+        if (!featuredSegments().length) {
+            reason = '没有精选的保留片段，无法仅导出精选';
+        }
+    } else if (!keeps.length) {
+        reason = '没有保留任何片段，无法导出';
+    }
+    button.disabled = Boolean(reason);
+    button.title = reason;
+    if (hint) {
+        hint.textContent = reason;
+        hint.classList.toggle('hidden', !reason);
+    }
 }
 
 async function saveConfig() {
@@ -1111,14 +1372,22 @@ async function saveConfig() {
  * 导出
  */
 async function startExport() {
-    if (!keepSegments().length) {
+    const mode = exportMode();
+    if (mode === 'FEATURED' && !featuredSegments().length) {
+        showToast('没有精选的保留片段，无法仅导出精选', 'warning');
+        return;
+    }
+    if (mode === 'ALL' && !keepSegments().length) {
         showToast('没有保留任何片段，无法导出', 'warning');
         return;
     }
     const button = document.getElementById('clip-export');
     button.disabled = true;
     try {
-        const job = await api(`/api/clip-projects/${project.id}/render-jobs`, {method: 'POST'});
+        const job = await api(`/api/clip-projects/${project.id}/render-jobs`, {
+            method: 'POST',
+            body: JSON.stringify({mode})
+        });
         setRenderStatus('QUEUED', '导出排队中');
         document.getElementById('clip-cancel-export').classList.remove('hidden');
         pollRenderJob(job.id);

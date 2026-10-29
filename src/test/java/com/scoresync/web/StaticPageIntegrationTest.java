@@ -6,6 +6,7 @@ import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMock
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.web.servlet.MockMvc;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.not;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -55,7 +56,26 @@ class StaticPageIntegrationTest {
                 .andExpect(content().string(not(containsString("id=\"clip-keep-band\""))))
                 .andExpect(content().string(not(containsString("id=\"clip-drop-band\""))))
                 .andExpect(content().string(containsString("id=\"clip-large-step\"")))
-                .andExpect(content().string(containsString("id=\"clip-small-step\"")));
+                .andExpect(content().string(containsString("id=\"clip-small-step\"")))
+                // 导出范围可选全部保留或仅精选
+                .andExpect(content().string(containsString("id=\"clip-export-mode\"")))
+                .andExpect(content().string(containsString("value=\"FEATURED\"")))
+                .andExpect(content().string(containsString("id=\"clip-export-hint\"")));
+    }
+
+    @Test
+    void clipEditorPagePlacesSourceTimelineUnderVideo() throws Exception {
+        String page = mockMvc.perform(get("/clip-editor.html"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        // 源时间轴整体在视频之后，保留帧时间轴在源时间轴之后
+        int video = page.indexOf("id=\"clip-video\"");
+        int sourceTimeline = page.indexOf("id=\"clip-timeline\"");
+        int keepTimeline = page.indexOf("id=\"clip-keep-timeline\"");
+        assertThat(video).isPositive();
+        assertThat(sourceTimeline).isGreaterThan(video);
+        assertThat(keepTimeline).isGreaterThan(sourceTimeline);
     }
 
     @Test

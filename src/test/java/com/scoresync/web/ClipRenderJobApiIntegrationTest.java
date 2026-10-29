@@ -24,6 +24,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.function.IntConsumer;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.containsString;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
@@ -35,6 +36,7 @@ class ClipRenderJobApiIntegrationTest {
     private MockMvc mockMvc;
     private ClipRenderJobRepository jobs;
     private ClipProjectRepository projects;
+    private ClipSegmentRepository segments;
     private VideoAssetRepository assets;
     private FakeRenderService fakeRender;
     private long projectId;
@@ -78,6 +80,7 @@ class ClipRenderJobApiIntegrationTest {
                   segment_type TEXT NOT NULL CHECK (segment_type IN ('KEEP','DROP')),
                   start_frame INTEGER NOT NULL CHECK (start_frame >= 0),
                   end_frame INTEGER NOT NULL CHECK (end_frame > start_frame),
+                  featured INTEGER NOT NULL DEFAULT 0 CHECK (featured IN (0,1)),
                   created_at TEXT NOT NULL, updated_at TEXT NOT NULL
                 )""");
         jdbc.execute("""
@@ -98,6 +101,7 @@ class ClipRenderJobApiIntegrationTest {
 
         projects = new ClipProjectRepository(jdbc);
         ClipSegmentRepository segments = new ClipSegmentRepository(jdbc);
+        this.segments = segments;
         jobs = new ClipRenderJobRepository(jdbc);
         assets = new VideoAssetRepository(jdbc);
         VideoSourceRepository sources = new VideoSourceRepository(jdbc);
@@ -201,6 +205,53 @@ class ClipRenderJobApiIntegrationTest {
         mockMvc.perform(post("/api/clip-projects/{id}/render-jobs", projectId))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("CLIP_RENDER_JOB_ACTIVE"));
+
+        fakeRender.release();
+    }
+
+    @Test
+    void createClipRenderJobWithoutBodyKeepsAllKeepSegments() throws Exception {
+        mockMvc.perform(post("/api/clip-projects/{id}/render-jobs", projectId))
+                .andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.status").value("QUEUED"));
+
+        fakeRender.release();
+    }
+
+    @Test
+    void createClipRenderJobRejectsUnknownMode() throws Exception {
+        mockMvc.perform(post("/api/clip-projects/{id}/render-jobs", projectId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"mode\":\"SOMETHING\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("DOMAIN_VALIDATION"))
+                .andExpect(jsonPath("$.message").value(containsString("导出范围只能是 ALL 或 FEATURED")));
+
+        // 非法范围不产生任务
+        assertThat(jobs.findByStatus(ClipRenderJobStatus.QUEUED)).isEmpty();
+    }
+
+    @Test
+    void createFeaturedClipRenderJobRejectsWhenNoFeaturedSegmentExists() throws Exception {
+        mockMvc.perform(post("/api/clip-projects/{id}/render-jobs", projectId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"mode\":\"FEATURED\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("DOMAIN_VALIDATION"))
+                .andExpect(jsonPath("$.message").value(containsString("没有精选的保留片段")));
+
+        assertThat(jobs.findByStatus(ClipRenderJobStatus.QUEUED)).isEmpty();
+    }
+
+    @Test
+    void createFeaturedClipRenderJobAcceptsWhenFeaturedSegmentExists() throws Exception {
+        segments.insert(projectId, ClipSegmentType.KEEP, 40, 50, true);
+
+        mockMvc.perform(post("/api/clip-projects/{id}/render-jobs", projectId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"mode\":\"FEATURED\"}"))
+                .andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.status").value("QUEUED"));
 
         fakeRender.release();
     }

@@ -285,7 +285,15 @@ CREATE TABLE IF NOT EXISTS clip_segment
     end_frame >
     start_frame
 ),
-    created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+    featured INTEGER NOT NULL DEFAULT 0 CHECK
+(
+    featured IN
+(
+    0,
+    1
+)),
+    created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+    CHECK (segment_type = 'KEEP' OR featured = 0)
     );
 CREATE INDEX IF NOT EXISTS idx_clip_segment_project ON clip_segment(project_id, start_frame);
 CREATE TABLE IF NOT EXISTS clip_render_job

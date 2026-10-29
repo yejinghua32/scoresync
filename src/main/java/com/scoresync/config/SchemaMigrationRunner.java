@@ -99,9 +99,20 @@ public class SchemaMigrationRunner implements CommandLineRunner {
                     + "segment_type TEXT NOT NULL CHECK (segment_type IN ('KEEP','DROP')), "
                     + "start_frame INTEGER NOT NULL CHECK (start_frame >= 0), "
                     + "end_frame INTEGER NOT NULL CHECK (end_frame > start_frame), "
-                    + "created_at TEXT NOT NULL, updated_at TEXT NOT NULL)");
+                    + "featured INTEGER NOT NULL DEFAULT 0 CHECK (featured IN (0,1)), "
+                    + "created_at TEXT NOT NULL, updated_at TEXT NOT NULL, "
+                    + "CHECK (segment_type = 'KEEP' OR featured = 0))");
             jdbc.execute("CREATE INDEX IF NOT EXISTS idx_clip_segment_project "
                     + "ON clip_segment(project_id, start_frame)");
+        } else {
+            // 精选标记是保留片段的持久属性，旧库升级后默认非精选
+            boolean featuredExists = jdbc.query("PRAGMA table_info(clip_segment)",
+                            (rs, rowNum) -> rs.getString("name")).stream()
+                    .anyMatch("featured"::equals);
+            if (!featuredExists) {
+                jdbc.execute("ALTER TABLE clip_segment ADD COLUMN featured "
+                        + "INTEGER NOT NULL DEFAULT 0");
+            }
         }
         boolean clipRenderJobTableExists = tableExists("clip_render_job");
         if (!clipRenderJobTableExists) {

@@ -27,6 +27,7 @@ public class ClipSegmentRepository {
             new ClipSegment(rs.getLong("id"), rs.getLong("project_id"),
                     ClipSegmentType.valueOf(rs.getString("segment_type")),
                     rs.getInt("start_frame"), rs.getInt("end_frame"),
+                    rs.getInt("featured") != 0,
                     Instant.parse(rs.getString("created_at")), Instant.parse(rs.getString("updated_at")));
 
     public ClipSegmentRepository(JdbcTemplate jdbc) {
@@ -35,12 +36,17 @@ public class ClipSegmentRepository {
     }
 
     public long insert(long projectId, ClipSegmentType type, int startFrame, int endFrame) {
+        return insert(projectId, type, startFrame, endFrame, false);
+    }
+
+    public long insert(long projectId, ClipSegmentType type, int startFrame, int endFrame, boolean featured) {
         Instant now = Instant.now();
         MapSqlParameterSource params = new MapSqlParameterSource()
                 .addValue("project_id", projectId)
                 .addValue("segment_type", type.name())
                 .addValue("start_frame", startFrame)
                 .addValue("end_frame", endFrame)
+                .addValue("featured", featured ? 1 : 0)
                 .addValue("created_at", now.toString())
                 .addValue("updated_at", now.toString());
         return insert.executeAndReturnKey(params).longValue();

@@ -75,6 +75,7 @@ class ClipProjectApiIntegrationTest {
                   segment_type TEXT NOT NULL CHECK (segment_type IN ('KEEP','DROP')),
                   start_frame INTEGER NOT NULL CHECK (start_frame >= 0),
                   end_frame INTEGER NOT NULL CHECK (end_frame > start_frame),
+                  featured INTEGER NOT NULL DEFAULT 0 CHECK (featured IN (0,1)),
                   created_at TEXT NOT NULL, updated_at TEXT NOT NULL
                 )""");
 
@@ -370,6 +371,97 @@ class ClipProjectApiIntegrationTest {
         mockMvc.perform(delete("/api/clip-projects/{id}/segments/{segmentId}", id, 999L))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("NOT_FOUND"));
+    }
+
+    @Test
+    void patchSegmentSetsFeaturedState() throws Exception {
+        long id = createProject();
+        projects.updateFrameIndex(id, ClipFrameIndexStatus.READY, 300);
+        mockMvc.perform(post("/api/clip-projects/{id}/segments", id)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"segments\":[{\"type\":\"KEEP\",\"startFrame\":0,\"endFrame\":10}]}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.segments[0].featured").value(false));
+        long segmentId = segments.findByProjectId(id).get(0).id();
+
+        mockMvc.perform(patch("/api/clip-projects/{id}/segments/{segmentId}", id, segmentId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"featured\":true}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.segments.length()").value(1))
+                .andExpect(jsonPath("$.segments[0].featured").value(true));
+    }
+
+    @Test
+    void patchSegmentRejectsFeaturingDropSegment() throws Exception {
+        long id = createProject();
+        projects.updateFrameIndex(id, ClipFrameIndexStatus.READY, 300);
+        mockMvc.perform(post("/api/clip-projects/{id}/segments", id)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"segments\":[{\"type\":\"DROP\",\"startFrame\":0,\"endFrame\":10}]}"))
+                .andExpect(status().isOk());
+        long segmentId = segments.findByProjectId(id).get(0).id();
+
+        mockMvc.perform(patch("/api/clip-projects/{id}/segments/{segmentId}", id, segmentId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"featured\":true}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("DOMAIN_VALIDATION"))
+                .andExpect(jsonPath("$.message").value(containsString("只有保留片段可以设为精选")));
+    }
+
+    @Test
+    void patchSegmentRejectsUnknownSegment() throws Exception {
+        long id = createProject();
+        projects.updateFrameIndex(id, ClipFrameIndexStatus.READY, 300);
+
+        mockMvc.perform(patch("/api/clip-projects/{id}/segments/{segmentId}", id, 999L)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"featured\":true}"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("NOT_FOUND"));
+    }
+
+    @Test
+    void putSegmentUpdatesBoundsAndKeepsFeaturedState() throws Exception {
+        long id = createProject();
+        projects.updateFrameIndex(id, ClipFrameIndexStatus.READY, 300);
+        mockMvc.perform(post("/api/clip-projects/{id}/segments", id)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"segments\":[{\"type\":\"KEEP\",\"startFrame\":0,\"endFrame\":20}]}"))
+                .andExpect(status().isOk());
+        long segmentId = segments.findByProjectId(id).get(0).id();
+        mockMvc.perform(patch("/api/clip-projects/{id}/segments/{segmentId}", id, segmentId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"featured\":true}"))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(put("/api/clip-projects/{id}/segments/{segmentId}", id, segmentId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"startFrame\":5,\"endFrame\":25}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.segments.length()").value(1))
+                .andExpect(jsonPath("$.segments[0].startFrame").value(5))
+                .andExpect(jsonPath("$.segments[0].endFrame").value(25))
+                .andExpect(jsonPath("$.segments[0].featured").value(true));
+    }
+
+    @Test
+    void putSegmentRejectsOutOfRangeBounds() throws Exception {
+        long id = createProject();
+        projects.updateFrameIndex(id, ClipFrameIndexStatus.READY, 300);
+        mockMvc.perform(post("/api/clip-projects/{id}/segments", id)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"segments\":[{\"type\":\"KEEP\",\"startFrame\":0,\"endFrame\":20}]}"))
+                .andExpect(status().isOk());
+        long segmentId = segments.findByProjectId(id).get(0).id();
+
+        mockMvc.perform(put("/api/clip-projects/{id}/segments/{segmentId}", id, segmentId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"startFrame\":0,\"endFrame\":9999}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("DOMAIN_VALIDATION"))
+                .andExpect(jsonPath("$.message").value(containsString("片段超出视频帧范围")));
     }
 
     /**

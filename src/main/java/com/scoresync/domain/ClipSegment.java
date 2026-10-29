@@ -11,9 +11,10 @@ import java.time.Instant;
  * @param type       片段类型（保留或舍弃）
  * @param startFrame 起始帧序号（含）
  * @param endFrame   结束帧序号（不含）
+ * @param featured   是否精选，只有保留片段可以是精选
  * @param createdAt  创建时间
  * @param updatedAt  最后更新时间
  */
 public record ClipSegment(long id, long projectId, ClipSegmentType type, int startFrame, int endFrame,
-                           Instant createdAt, Instant updatedAt) {
+                           boolean featured, Instant createdAt, Instant updatedAt) {
 }

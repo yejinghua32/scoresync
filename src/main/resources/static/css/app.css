@@ -1011,22 +1011,30 @@ button.danger:hover {
     min-height: 100vh;
 }
 
-/* 剪辑页：左列为视频预览与时间轴，右列为已存档片段 */
+/* 剪辑页：左列为视频预览与源时间轴、保留帧时间轴，右列为已存档片段 */
 .clip-main {
     flex: 1 1 auto;
     min-height: 0;
     display: grid;
     grid-template-columns: minmax(0, 1fr) clamp(320px, 24vw, 460px);
-    grid-template-rows: auto auto;
+    grid-template-rows: auto minmax(0, 1fr);
     grid-template-areas:
         "stage segments"
-        "timeline segments";
+        "keep segments";
     align-items: start;
     gap: 1rem;
 }
 
-.clip-timeline-section {
-    grid-area: timeline;
+.clip-source-section {
+    display: flex;
+    flex-direction: column;
+}
+
+.clip-keep-section {
+    grid-area: keep;
+    align-self: start;
+    display: flex;
+    flex-direction: column;
 }
 
 .clip-stage-section {
@@ -1087,12 +1095,7 @@ button.danger:hover {
     line-height: 1.5;
 }
 
-/* 视频下方的保留帧时间轴：保留片段按自身时长首尾相接，刻度为成片时间 */
-.clip-keep-section {
-    display: flex;
-    flex-direction: column;
-}
-
+/* 视频下方的源时间轴与保留帧时间轴共用时间轴样式 */
 .clip-keep-title {
     flex-wrap: wrap;
 }
@@ -1239,27 +1242,31 @@ button.danger:hover {
     transform: none;
 }
 
+/* 右侧存档区：顶部与主区域对齐，列表有明确高度并独立滚动 */
 .clip-segments-section {
     grid-area: segments;
     align-self: stretch;
     display: flex;
     flex-direction: column;
     min-height: 0;
+    max-height: calc(100vh - 96px);
 }
 
 .clip-segment-list {
+    position: relative;
     display: flex;
     flex-direction: column;
     gap: 0.35rem;
     flex: 1 1 auto;
     min-height: 0;
     overflow-y: auto;
+    overflow-x: hidden;
 }
 
 .clip-segment-item {
     display: flex;
-    align-items: center;
-    gap: 0.75rem;
+    flex-direction: column;
+    gap: 0.35rem;
     padding: 0.4rem 0.6rem;
     border-radius: 6px;
     font-size: 0.8125rem;
@@ -1270,6 +1277,32 @@ button.danger:hover {
 .clip-segment-item:hover {
     background: var(--border);
     outline: 1px solid var(--accent);
+}
+
+/* 当前帧所在的片段 */
+.clip-segment-item.active {
+    background: var(--border);
+    outline: 1px solid var(--accent);
+}
+
+/* 精选片段在左侧留一道标记 */
+.clip-segment-item.featured {
+    box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.clip-segment-main {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+    min-width: 0;
+}
+
+.clip-segment-actions {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
 }
 
 .clip-segment-item.keep .clip-segment-type {
@@ -1294,8 +1327,13 @@ button.danger:hover {
     color: var(--text-dim);
 }
 
-.clip-segment-delete {
-    margin-left: auto;
+.clip-segment-delete,
+.clip-segment-featured,
+.clip-segment-edit-toggle,
+.clip-segment-step,
+.clip-segment-use,
+.clip-segment-save,
+.clip-segment-cancel {
     padding: 0.15rem 0.5rem;
     font-size: 0.75rem;
     border-radius: 4px;
@@ -1303,6 +1341,7 @@ button.danger:hover {
     background: transparent;
     color: var(--text-dim);
     cursor: pointer;
+    white-space: nowrap;
 }
 
 .clip-segment-delete:hover {
@@ -1310,10 +1349,78 @@ button.danger:hover {
     color: var(--danger);
 }
 
+/* 精选开关 */
+.clip-segment-featured.on {
+    border-color: var(--accent);
+    color: var(--accent);
+}
+
+/* 边界编辑面板 */
+.clip-segment-edit {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    padding-top: 0.4rem;
+    border-top: 1px dashed var(--border);
+    cursor: default;
+}
+
+.clip-segment-edit-row {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    flex-wrap: wrap;
+}
+
+.clip-segment-edit-label {
+    min-width: 44px;
+    color: var(--text-dim);
+}
+
+.clip-segment-input {
+    width: 5.5rem;
+    padding: 0.15rem 0.3rem;
+    font-size: 0.75rem;
+    font-variant-numeric: tabular-nums;
+}
+
+.clip-segment-edit-note {
+    margin: 0;
+    font-size: 0.6875rem;
+    color: var(--text-dim);
+    line-height: 1.5;
+}
+
+.clip-segment-edit-actions {
+    display: flex;
+    gap: 0.35rem;
+}
+
+.clip-segment-save {
+    border-color: var(--accent);
+    color: var(--accent);
+}
+
+/* 导出范围选择 */
+.clip-export-mode {
+    padding: 0.2rem 0.4rem;
+    font-size: 0.8125rem;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+    background: var(--surface2);
+    color: var(--text);
+}
+
+.clip-export-hint {
+    font-size: 0.75rem;
+    color: var(--danger);
+    margin-top: 0.25rem;
+}
+
 /* 宽屏：视频按可用高度收窄，整列始终留得下 */
 @media (min-width: 1001px) {
     .clip-stage {
-        max-width: max(320px, calc((100vh - 420px) * 16 / 9));
+        max-width: max(320px, calc((100vh - 390px) * 16 / 9));
         margin: 0 auto;
     }
 }
@@ -1321,10 +1428,20 @@ button.danger:hover {
 @media (max-width: 1000px) {
     .clip-main {
         grid-template-columns: minmax(0, 1fr);
+        grid-template-rows: auto auto auto;
         grid-template-areas:
             "stage"
-            "timeline"
+            "keep"
             "segments";
+    }
+
+    /* 窄屏单列排列时，列表给一个合理的高度上限 */
+    .clip-segments-section {
+        max-height: none;
+    }
+
+    .clip-segment-list {
+        max-height: 60vh;
     }
 }
 

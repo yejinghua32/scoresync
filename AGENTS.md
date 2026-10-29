@@ -57,10 +57,12 @@
 ## 视频剪辑（clip）
 
 - **剪辑项目（`clip_project`）** 绑定一个 `video_asset`，保存项目名、两个步长（大步长默认 10、小步长默认 5）以及建立项目时的源文件大小与修改时间。源文件变化后该指纹不匹配，`ClipSourceValidator` 会拒绝继续编辑与导出（409 `CLIP_SOURCE_CHANGED`），项目本身保留。
-- **片段（`clip_segment`）** 是不重叠的 KEEP/DROP 半开区间 `[startFrame, endFrame)`。**未标记帧由区间之间的空隙派生**，不逐帧存库；未标记状态在界面上有独立底色，不会被误显示为舍弃。提交新片段时在一个事务内拆分旧区间、覆盖、合并相邻同类区间。
+- **片段（`clip_segment`）** 是不重叠的 KEEP/DROP 半开区间 `[startFrame, endFrame)`。**未标记帧由区间之间的空隙派生**，不逐帧存库；未标记状态在界面上有独立底色，不会被误显示为舍弃。提交新片段时在一个事务内拆分旧区间、覆盖、合并相邻区间 — **类型与精选状态都相同**的相邻区间才合并，避免精选边界被合并抹去。
+- **精选（`clip_segment.featured`）** 是保留片段的持久属性（`INTEGER NOT NULL DEFAULT 0`），舍弃片段不能设为精选，旧库迁移后已有片段默认非精选。`PATCH /api/clip-projects/{id}/segments/{segmentId}` 提交 `{ "featured": true|false }`；`PUT /api/clip-projects/{id}/segments/{segmentId}` 提交 `{ "startFrame", "endFrame" }` 调整边界并保留原类型与精选状态。两个入口都先移除原区间再按覆盖规则写回，因此**缩短后腾出的帧回到未标记状态**，邻段未被覆盖的残段保留各自的类型与精选状态。片段 ID 会因重写而变化，前端必须用服务端返回的完整列表刷新。
 - **帧索引** 由 `ClipFrameIndexService` 用 ffprobe 逐帧读取显示时间戳建立，**不依赖平均帧率换算**（兼容可变帧率）。索引与缩略图缓存位于 `${SCORESYNC_DATA_DIR}/clip-cache`，按资产 ID + 文件大小 + 修改时间失效；索引在后台线程建立，不阻塞启动。剪辑页已取消当前帧缩略图条，缩略图接口（`/api/clip-projects/{id}/frames/{n}/thumbnail`）与缓存仍在，但页面不再调用。
 - **导出** 由 `ClipFfmpegCommandFactory` 用 `select` 滤镜按**解码帧序号**精确选帧，再用分段 `setpts` 把各段时间轴接成连续序列；音频按帧索引给出的时间戳切取对应区间后同样重排。**全程重新编码**，不用关键帧 `-c copy`，也不按 `frameRate × seconds` 近似选帧。无音轨的源视频走单独的 `-an` 分支。
 - 导出成功后先校验文件，再通过 `VideoLibraryService.registerExported` 以 `SCANNED` 类型登记回视频库；失败或取消不登记并清理半成品。重复导出按任务 ID 生成不同文件名与新资产，不覆盖既有结果。
+- **导出范围** 由 `POST /api/clip-projects/{id}/render-jobs` 的可选请求体 `{ "mode": "ALL"|"FEATURED" }` 决定，省略请求体等价于 `ALL`。区间集合由**服务端**判定：ALL 取全部保留片段，FEATURED 只取精选的保留片段；集合为空或模式非法时拒绝创建任务（`DOMAIN_VALIDATION`）。任务启动时冻结过滤后的区间，任务中途的编辑不影响本次导出。
 
 ## 约定
 

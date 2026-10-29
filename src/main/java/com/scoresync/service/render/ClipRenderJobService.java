@@ -87,20 +87,33 @@ public class ClipRenderJobService implements CommandLineRunner {
 
     /**
      * 启动剪辑导出任务
+     * 导出全部保留片段
      *
      * @param projectId 剪辑项目 ID
      * @return 创建的导出任务
      * @throws RenderJobConflictException 已有导出任务在执行时抛出
      */
     public ClipRenderJob start(long projectId) {
+        return start(projectId, ClipExportMode.ALL);
+    }
+
+    /**
+     * 启动剪辑导出任务
+     *
+     * @param projectId 剪辑项目 ID
+     * @param mode      导出范围，全部保留或仅精选
+     * @return 创建的导出任务
+     * @throws RenderJobConflictException 已有导出任务在执行时抛出
+     */
+    public ClipRenderJob start(long projectId, ClipExportMode mode) {
         return exportOccupancyService.runExclusively("CLIP_RENDER_JOB_ACTIVE", "已有导出任务正在执行", () -> {
             ClipProject project = projectRepository.findById(projectId);
-            // 冻结已存档的保留区间，导出过程中的后续编辑不影响本次任务
-            List<ClipSegment> keepSegments = segmentRepository.findByProjectId(projectId).stream()
-                    .filter(segment -> segment.type() == ClipSegmentType.KEEP)
-                    .toList();
+            // 冻结导出范围内的保留区间，导出过程中的后续编辑不影响本次任务
+            List<ClipSegment> keepSegments = exportSegments(projectId, mode);
             if (keepSegments.isEmpty()) {
-                throw new DomainValidationException("没有保留任何片段，无法导出");
+                throw new DomainValidationException(mode == ClipExportMode.FEATURED
+                        ? "没有精选的保留片段，无法导出"
+                        : "没有保留任何片段，无法导出");
             }
             ClipFrameIndex index = frameIndexService.requireIndex(project);
 
@@ -109,6 +122,17 @@ public class ClipRenderJobService implements CommandLineRunner {
             executor.submit(() -> runJob(job.id(), keepSegments, index));
             return job;
         });
+    }
+
+    /**
+     * 按导出范围挑选保留片段
+     * 服务端决定区间集合：全部范围取全部保留片段，精选范围只取精选的保留片段
+     */
+    private List<ClipSegment> exportSegments(long projectId, ClipExportMode mode) {
+        return segmentRepository.findByProjectId(projectId).stream()
+                .filter(segment -> segment.type() == ClipSegmentType.KEEP)
+                .filter(segment -> mode != ClipExportMode.FEATURED || segment.featured())
+                .toList();
     }
 
     /**

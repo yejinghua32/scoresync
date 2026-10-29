@@ -124,7 +124,7 @@ class ClipFfmpegCommandFactoryTest {
 
     private ClipSegment segment(int startFrame, int endFrame) {
         return new ClipSegment(0L, 0L, ClipSegmentType.KEEP, startFrame, endFrame,
-                Instant.now(), Instant.now());
+                false, Instant.now(), Instant.now());
     }
 
     /**

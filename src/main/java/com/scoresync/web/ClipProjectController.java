@@ -15,6 +15,8 @@ import com.scoresync.web.dto.CreateClipProjectRequest;
 import com.scoresync.web.dto.PageResponse;
 import com.scoresync.web.dto.SubmitClipSegmentsRequest;
 import com.scoresync.web.dto.UpdateClipProjectRequest;
+import com.scoresync.web.dto.UpdateClipSegmentBoundsRequest;
+import com.scoresync.web.dto.UpdateClipSegmentFeaturedRequest;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -106,6 +108,34 @@ public class ClipProjectController {
     public ClipProjectResponse deleteSegment(@PathVariable long id, @PathVariable long segmentId) {
         clipProjectService.deleteSegment(id, segmentId);
         return ClipProjectResponse.from(clipProjectService.detail(id));
+    }
+
+    /**
+     * 设置保留片段的精选状态
+     * 舍弃片段不能设为精选
+     */
+    @PatchMapping("/{id}/segments/{segmentId}")
+    public ClipProjectResponse setSegmentFeatured(@PathVariable long id, @PathVariable long segmentId,
+                                                  @RequestBody UpdateClipSegmentFeaturedRequest request) {
+        if (request == null || request.featured() == null) {
+            throw new DomainValidationException("精选状态只能是 true 或 false");
+        }
+        return ClipProjectResponse.from(
+                clipProjectService.setSegmentFeatured(id, segmentId, request.featured()));
+    }
+
+    /**
+     * 调整已存档片段的起止帧
+     * 片段类型与精选状态保持不变
+     */
+    @PutMapping("/{id}/segments/{segmentId}")
+    public ClipProjectResponse updateSegmentBounds(@PathVariable long id, @PathVariable long segmentId,
+                                                    @RequestBody UpdateClipSegmentBoundsRequest request) {
+        if (request == null) {
+            throw new DomainValidationException("缺少片段边界");
+        }
+        return ClipProjectResponse.from(clipProjectService.updateSegmentBounds(
+                id, segmentId, request.startFrame(), request.endFrame()));
     }
 
     /**

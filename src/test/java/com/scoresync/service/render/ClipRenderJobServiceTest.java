@@ -82,6 +82,7 @@ class ClipRenderJobServiceTest {
                   segment_type TEXT NOT NULL CHECK (segment_type IN ('KEEP','DROP')),
                   start_frame INTEGER NOT NULL CHECK (start_frame >= 0),
                   end_frame INTEGER NOT NULL CHECK (end_frame > start_frame),
+                  featured INTEGER NOT NULL DEFAULT 0 CHECK (featured IN (0,1)),
                   created_at TEXT NOT NULL, updated_at TEXT NOT NULL
                 )""");
         jdbc.execute("""
@@ -148,6 +149,78 @@ class ClipRenderJobServiceTest {
         assertThatThrownBy(() -> service.start(projectId))
                 .isInstanceOf(DomainValidationException.class)
                 .hasMessageContaining("没有保留任何片段");
+    }
+
+    @Test
+    void rejectsFeaturedExportWhenNoFeaturedSegmentExists() {
+        ClipRenderJobService service = service();
+        segments.deleteByProjectId(projectId);
+        segments.insert(projectId, ClipSegmentType.KEEP, 0, 10);
+
+        assertThatThrownBy(() -> service.start(projectId, ClipExportMode.FEATURED))
+                .isInstanceOf(DomainValidationException.class)
+                .hasMessageContaining("没有精选的保留片段");
+        // 集合为空时不创建任务
+        assertThat(jobs.findByStatus(ClipRenderJobStatus.QUEUED)).isEmpty();
+    }
+
+    @Test
+    void featuredExportOnlyUsesFeaturedKeepSegments() throws Exception {
+        ClipRenderJobService service = service();
+        fakeRender.writeOutput = true;
+        segments.deleteByProjectId(projectId);
+        segments.insert(projectId, ClipSegmentType.KEEP, 0, 10, true);
+        segments.insert(projectId, ClipSegmentType.KEEP, 20, 30, false);
+        segments.insert(projectId, ClipSegmentType.DROP, 40, 50, false);
+
+        ClipRenderJob job = service.start(projectId, ClipExportMode.FEATURED);
+        fakeRender.awaitEntered();
+        fakeRender.release();
+        waitForStatus(job.id(), ClipRenderJobStatus.SUCCEEDED);
+
+        // 只冻结精选的保留片段
+        assertThat(fakeRender.filterScript).contains("between(n\\,0\\,9)");
+        assertThat(fakeRender.filterScript).doesNotContain("between(n\\,20\\,29)");
+        assertThat(fakeRender.filterScript).doesNotContain("between(n\\,40\\,49)");
+    }
+
+    @Test
+    void allExportKeepsNonFeaturedKeepSegments() throws Exception {
+        ClipRenderJobService service = service();
+        fakeRender.writeOutput = true;
+        segments.deleteByProjectId(projectId);
+        segments.insert(projectId, ClipSegmentType.KEEP, 0, 10, true);
+        segments.insert(projectId, ClipSegmentType.KEEP, 20, 30, false);
+
+        ClipRenderJob job = service.start(projectId, ClipExportMode.ALL);
+        fakeRender.awaitEntered();
+        fakeRender.release();
+        waitForStatus(job.id(), ClipRenderJobStatus.SUCCEEDED);
+
+        // 全部范围包含精选与非精选的保留片段
+        assertThat(fakeRender.filterScript).contains("between(n\\,0\\,9)");
+        assertThat(fakeRender.filterScript).contains("between(n\\,20\\,29)");
+    }
+
+    @Test
+    void editingSegmentsAfterStartDoesNotChangeFrozenExport() throws Exception {
+        ClipRenderJobService service = service();
+        fakeRender.writeOutput = true;
+        segments.deleteByProjectId(projectId);
+        segments.insert(projectId, ClipSegmentType.KEEP, 0, 10, true);
+
+        ClipRenderJob job = service.start(projectId, ClipExportMode.FEATURED);
+        fakeRender.awaitEntered();
+
+        // 任务开始后改动精选与边界，不影响已经冻结的本次导出
+        segments.deleteByProjectId(projectId);
+        segments.insert(projectId, ClipSegmentType.KEEP, 100, 200, false);
+
+        fakeRender.release();
+        waitForStatus(job.id(), ClipRenderJobStatus.SUCCEEDED);
+        assertThat(service.get(job.id()).outputAssetId()).isNotNull();
+        assertThat(fakeRender.filterScript).contains("between(n\\,0\\,9)");
+        assertThat(fakeRender.filterScript).doesNotContain("between(n\\,100\\,199)");
     }
 
     @Test
@@ -348,6 +421,8 @@ class ClipRenderJobServiceTest {
         volatile CountDownLatch entered = new CountDownLatch(1);
         volatile CountDownLatch release = new CountDownLatch(1);
         volatile boolean writeOutput = true;
+        /** 最近一次渲染使用的滤镜脚本内容，用于检查冻结的帧区间 */
+        volatile String filterScript = "";
 
         FakeRenderService(AppProperties appProperties) {
             super(appProperties);
@@ -357,6 +432,11 @@ class ClipRenderJobServiceTest {
         public void execute(long jobId, Path workDir, long durationMs, FfmpegCommand command,
                             Path finalOutput, IntConsumer progressCallback) {
             entered.countDown();
+            try {
+                filterScript = Files.readString(command.filterScript());
+            } catch (IOException e) {
+                throw new IllegalStateException(e);
+            }
             try {
                 release.await(5, TimeUnit.SECONDS);
             } catch (InterruptedException e) {

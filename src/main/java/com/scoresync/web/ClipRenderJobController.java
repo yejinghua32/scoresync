@@ -1,10 +1,13 @@
 package com.scoresync.web;
 
+import com.scoresync.domain.ClipExportMode;
 import com.scoresync.domain.ClipRenderJob;
 import com.scoresync.domain.ClipRenderJobStatus;
 import com.scoresync.service.render.ClipRenderJobService;
 import com.scoresync.support.DomainNotFoundException;
+import com.scoresync.support.DomainValidationException;
 import com.scoresync.support.RenderJobConflictException;
+import com.scoresync.web.dto.ClipRenderJobRequest;
 import com.scoresync.web.dto.ClipRenderJobResponse;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.http.HttpHeaders;
@@ -34,11 +37,29 @@ public class ClipRenderJobController {
 
     /**
      * 为剪辑项目创建导出任务
+     * 请求体可以省略，省略时导出全部保留片段
      */
     @PostMapping("/clip-projects/{id}/render-jobs")
-    public ResponseEntity<ClipRenderJobResponse> createRenderJob(@PathVariable long id) {
-        ClipRenderJob job = clipRenderJobService.start(id);
+    public ResponseEntity<ClipRenderJobResponse> createRenderJob(@PathVariable long id,
+                                                                 @RequestBody(required = false)
+                                                                 ClipRenderJobRequest request) {
+        ClipRenderJob job = clipRenderJobService.start(id, parseMode(request));
         return ResponseEntity.accepted().body(ClipRenderJobResponse.from(job));
+    }
+
+    /**
+     * 解析导出范围，未知范围按业务校验错误拒绝
+     */
+    private ClipExportMode parseMode(ClipRenderJobRequest request) {
+        String mode = request == null ? null : request.mode();
+        if (mode == null || mode.isBlank()) {
+            return ClipExportMode.ALL;
+        }
+        try {
+            return ClipExportMode.valueOf(mode.trim().toUpperCase());
+        } catch (IllegalArgumentException e) {
+            throw new DomainValidationException("导出范围只能是 ALL 或 FEATURED");
+        }
     }
 
     /**

@@ -72,6 +72,7 @@ class ClipProjectServiceTest {
                   segment_type TEXT NOT NULL CHECK (segment_type IN ('KEEP','DROP')),
                   start_frame INTEGER NOT NULL CHECK (start_frame >= 0),
                   end_frame INTEGER NOT NULL CHECK (end_frame > start_frame),
+                  featured INTEGER NOT NULL DEFAULT 0 CHECK (featured IN (0,1)),
                   created_at TEXT NOT NULL, updated_at TEXT NOT NULL
                 )""");
 
@@ -349,6 +350,205 @@ class ClipProjectServiceTest {
         service.commitSegments(id, List.of(new ClipSegmentSpec(ClipSegmentType.DROP, 40, 50)));
 
         assertThat(service.keptFrameCount(id)).isEqualTo(25);
+    }
+
+    @Test
+    void newSegmentsAreNotFeatured() {
+        long id = readyProject(300);
+        service.commitSegments(id, List.of(new ClipSegmentSpec(ClipSegmentType.KEEP, 0, 10)));
+
+        assertThat(segments.findByProjectId(id)).allMatch(segment -> !segment.featured());
+    }
+
+    @Test
+    void marksKeepSegmentAsFeatured() {
+        long id = readyProject(300);
+        service.commitSegments(id, List.of(new ClipSegmentSpec(ClipSegmentType.KEEP, 0, 10)));
+        long segmentId = segments.findByProjectId(id).get(0).id();
+
+        service.setSegmentFeatured(id, segmentId, true);
+
+        List<ClipSegment> stored = segments.findByProjectId(id);
+        assertThat(stored).hasSize(1);
+        assertThat(stored.get(0).featured()).isTrue();
+        assertThat(stored.get(0).startFrame()).isZero();
+        assertThat(stored.get(0).endFrame()).isEqualTo(10);
+    }
+
+    @Test
+    void featuredStateCanBeTurnedOffAgain() {
+        long id = readyProject(300);
+        service.commitSegments(id, List.of(new ClipSegmentSpec(ClipSegmentType.KEEP, 0, 10)));
+        long segmentId = segments.findByProjectId(id).get(0).id();
+
+        service.setSegmentFeatured(id, segmentId, true);
+        service.setSegmentFeatured(id, segments.findByProjectId(id).get(0).id(), false);
+
+        assertThat(segments.findByProjectId(id).get(0).featured()).isFalse();
+    }
+
+    @Test
+    void rejectsFeaturingDropSegment() {
+        long id = readyProject(300);
+        service.commitSegments(id, List.of(new ClipSegmentSpec(ClipSegmentType.DROP, 0, 10)));
+        long segmentId = segments.findByProjectId(id).get(0).id();
+
+        assertThatThrownBy(() -> service.setSegmentFeatured(id, segmentId, true))
+                .isInstanceOf(DomainValidationException.class)
+                .hasMessageContaining("只有保留片段可以设为精选");
+        assertThat(segments.findByProjectId(id).get(0).featured()).isFalse();
+    }
+
+    @Test
+    void rejectsFeaturingSegmentOfAnotherProject() {
+        long first = readyProject(300);
+        long second = readyProject(300);
+        service.commitSegments(first, List.of(new ClipSegmentSpec(ClipSegmentType.KEEP, 0, 10)));
+        long segmentId = segments.findByProjectId(first).get(0).id();
+
+        assertThatThrownBy(() -> service.setSegmentFeatured(second, segmentId, true))
+                .isInstanceOf(DomainNotFoundException.class);
+        assertThat(segments.findByProjectId(first).get(0).featured()).isFalse();
+    }
+
+    @Test
+    void rejectsFeaturingUnknownSegment() {
+        long id = readyProject(300);
+
+        assertThatThrownBy(() -> service.setSegmentFeatured(id, 999L, true))
+                .isInstanceOf(DomainNotFoundException.class);
+    }
+
+    @Test
+    void adjacentSegmentsWithDifferentFeaturedStateAreKeptSeparate() {
+        long id = readyProject(300);
+        service.commitSegments(id, List.of(new ClipSegmentSpec(ClipSegmentType.KEEP, 0, 10)));
+        service.setSegmentFeatured(id, segments.findByProjectId(id).get(0).id(), true);
+        // 精选状态不同的相邻保留片段不会被合并，精选边界得以保留
+        service.commitSegments(id, List.of(new ClipSegmentSpec(ClipSegmentType.KEEP, 10, 20)));
+
+        List<ClipSegment> stored = segments.findByProjectId(id);
+        assertThat(stored).hasSize(2);
+        assertThat(stored.get(0).featured()).isTrue();
+        assertThat(stored.get(1).featured()).isFalse();
+    }
+
+    @Test
+    void newSegmentOverwritesFeaturedStateOfCoveredPart() {
+        long id = readyProject(300);
+        service.commitSegments(id, List.of(new ClipSegmentSpec(ClipSegmentType.KEEP, 0, 20)));
+        service.setSegmentFeatured(id, segments.findByProjectId(id).get(0).id(), true);
+
+        // 普通新存档按非精选状态覆盖被覆盖的部分
+        service.commitSegments(id, List.of(new ClipSegmentSpec(ClipSegmentType.KEEP, 10, 30)));
+
+        List<ClipSegment> stored = segments.findByProjectId(id);
+        assertThat(stored).hasSize(2);
+        // 未被覆盖的残段保留各自的精选状态
+        assertThat(stored.get(0).startFrame()).isZero();
+        assertThat(stored.get(0).endFrame()).isEqualTo(10);
+        assertThat(stored.get(0).featured()).isTrue();
+        // 被覆盖的部分取得新片段的类型与精选状态
+        assertThat(stored.get(1).startFrame()).isEqualTo(10);
+        assertThat(stored.get(1).endFrame()).isEqualTo(30);
+        assertThat(stored.get(1).featured()).isFalse();
+    }
+
+    @Test
+    void editingBoundsKeepsTypeAndFeaturedState() {
+        long id = readyProject(300);
+        service.commitSegments(id, List.of(new ClipSegmentSpec(ClipSegmentType.KEEP, 0, 20)));
+        long segmentId = segments.findByProjectId(id).get(0).id();
+        service.setSegmentFeatured(id, segmentId, true);
+
+        service.updateSegmentBounds(id, segments.findByProjectId(id).get(0).id(), 5, 25);
+
+        List<ClipSegment> stored = segments.findByProjectId(id);
+        assertThat(stored).hasSize(1);
+        assertThat(stored.get(0).type()).isEqualTo(ClipSegmentType.KEEP);
+        assertThat(stored.get(0).featured()).isTrue();
+        assertThat(stored.get(0).startFrame()).isEqualTo(5);
+        assertThat(stored.get(0).endFrame()).isEqualTo(25);
+    }
+
+    @Test
+    void shorteningSegmentLeavesFreedFramesUnmarked() {
+        long id = readyProject(300);
+        service.commitSegments(id, List.of(new ClipSegmentSpec(ClipSegmentType.KEEP, 0, 20)));
+
+        service.updateSegmentBounds(id, segments.findByProjectId(id).get(0).id(), 0, 10);
+
+        List<ClipSegment> stored = segments.findByProjectId(id);
+        assertThat(stored).hasSize(1);
+        assertThat(stored.get(0).startFrame()).isZero();
+        assertThat(stored.get(0).endFrame()).isEqualTo(10);
+    }
+
+    @Test
+    void expandingSegmentCoversNeighbouringPart() {
+        long id = readyProject(300);
+        service.commitSegments(id, List.of(new ClipSegmentSpec(ClipSegmentType.KEEP, 0, 10)));
+        service.commitSegments(id, List.of(new ClipSegmentSpec(ClipSegmentType.DROP, 10, 20)));
+
+        service.updateSegmentBounds(id, segments.findByProjectId(id).get(0).id(), 0, 15);
+
+        List<ClipSegment> stored = segments.findByProjectId(id);
+        assertThat(stored).hasSize(2);
+        assertThat(stored.get(0).type()).isEqualTo(ClipSegmentType.KEEP);
+        assertThat(stored.get(0).endFrame()).isEqualTo(15);
+        // 邻段未被覆盖的残段保留自己的类型
+        assertThat(stored.get(1).type()).isEqualTo(ClipSegmentType.DROP);
+        assertThat(stored.get(1).startFrame()).isEqualTo(15);
+        assertThat(stored.get(1).endFrame()).isEqualTo(20);
+    }
+
+    @Test
+    void rejectsEditingBoundsOutsideFrameRange() {
+        long id = readyProject(300);
+        service.commitSegments(id, List.of(new ClipSegmentSpec(ClipSegmentType.KEEP, 0, 10)));
+        long segmentId = segments.findByProjectId(id).get(0).id();
+
+        assertThatThrownBy(() -> service.updateSegmentBounds(id, segmentId, 0, 301))
+                .isInstanceOf(DomainValidationException.class)
+                .hasMessageContaining("片段超出视频帧范围");
+        assertThatThrownBy(() -> service.updateSegmentBounds(id, segmentId, 10, 10))
+                .isInstanceOf(DomainValidationException.class)
+                .hasMessageContaining("片段结束帧必须大于起始帧");
+        assertThatThrownBy(() -> service.updateSegmentBounds(id, segmentId, -1, 10))
+                .isInstanceOf(DomainValidationException.class)
+                .hasMessageContaining("片段起始帧不能为负数");
+    }
+
+    @Test
+    void rejectsEditingSegmentOfAnotherProject() {
+        long first = readyProject(300);
+        long second = readyProject(300);
+        service.commitSegments(first, List.of(new ClipSegmentSpec(ClipSegmentType.KEEP, 0, 10)));
+        long segmentId = segments.findByProjectId(first).get(0).id();
+
+        assertThatThrownBy(() -> service.updateSegmentBounds(second, segmentId, 0, 5))
+                .isInstanceOf(DomainNotFoundException.class);
+    }
+
+    @Test
+    void rejectsEditingBoundsBeforeIndexIsReady() {
+        long id = readyProject(300);
+        service.commitSegments(id, List.of(new ClipSegmentSpec(ClipSegmentType.KEEP, 0, 10)));
+        long segmentId = segments.findByProjectId(id).get(0).id();
+        // 帧索引失效后不能继续修改片段边界
+        projects.updateFrameIndex(id, ClipFrameIndexStatus.BUILDING, 300);
+
+        assertThatThrownBy(() -> service.updateSegmentBounds(id, segmentId, 0, 10))
+                .isInstanceOf(DomainValidationException.class)
+                .hasMessageContaining("帧索引尚未建立完成");
+    }
+
+    @Test
+    void rejectsEditingUnknownSegment() {
+        long id = readyProject(300);
+
+        assertThatThrownBy(() -> service.updateSegmentBounds(id, 999L, 0, 10))
+                .isInstanceOf(DomainNotFoundException.class);
     }
 
     private void await(CountDownLatch latch) {
