@@ -29,24 +29,29 @@ class ClipFfmpegCommandFactoryTest {
     }
 
     @Test
-    void selectsFramesByDecodedFrameIndexNotByTime() {
-        ClipFrameIndex index = index();
-        List<ClipSegment> segments = List.of(segment(10, 20), segment(40, 50));
-
-        String selection = factory.frameSelection(segments);
-
-        assertThat(selection).isEqualTo("between(n\\,10\\,19)+between(n\\,40\\,49)");
-    }
-
-    @Test
-    void audioUsesTimestampsFromFrameIndex() {
+    void selectsFramesByTimestampWindowsFromFrameIndex() {
         ClipFrameIndex index = index();
         List<ClipSegment> segments = List.of(segment(10, 20), segment(40, 50));
 
         String selection = factory.timeSelection(index, segments);
 
+        // 半开时间区间 [起点帧时间, 终点帧时间)，不按平均帧率换算
         assertThat(selection)
-                .isEqualTo("between(t\\,0.333333\\,0.666667)+between(t\\,1.333333\\,1.666667)");
+                .isEqualTo("gte(t\\,0.333333)*lt(t\\,0.666667)+gte(t\\,1.333333)*lt(t\\,1.666667)");
+    }
+
+    @Test
+    void windowsShrinkOverlappingRangesToStayDisjoint() {
+        ClipFrameIndex index = index();
+        List<ClipSegment> segments = List.of(segment(10, 20), segment(19, 30), segment(50, 60));
+
+        List<long[]> windows = factory.windows(index, segments);
+
+        // 第二段起点过早地落在第一段时间内：收缩到第一段的终点
+        assertThat(windows).hasSize(3);
+        assertThat(windows.get(0)).containsExactly(333_333L, 666_667L);
+        assertThat(windows.get(1)).containsExactly(666_667L, 1_000_000L);
+        assertThat(windows.get(2)).containsExactly(1_666_667L, 1_966_667L);
     }
 
     @Test
@@ -58,9 +63,8 @@ class ClipFfmpegCommandFactoryTest {
 
         // 第一段整体前移到零点
         assertThat(setpts).startsWith("PTS+(-0.333333)/TB");
-        // 后续段额外前移两个段之间的空白，使输出首尾相接
-        assertThat(setpts).contains("gte(PTS\\,1.333333/TB)");
-        assertThat(setpts).contains("(-0.666666)/TB");
+        // 后续段按落入的时间区间额外前移，与个别帧的到达顺序无关（B 帧安全）
+        assertThat(setpts).contains("+(-0.666666)/TB*gte(T\\,1.333333)");
     }
 
     @Test
@@ -72,6 +76,32 @@ class ClipFfmpegCommandFactoryTest {
 
         assertThat(setpts).isEqualTo("PTS+(-0.333333)/TB");
         assertThat(setpts).doesNotContain("gte(");
+    }
+
+    @Test
+    void videoAndAudioUseTheSameSelectionAndTimeline() throws Exception {
+        ClipFrameIndex index = index();
+        List<ClipSegment> segments = List.of(segment(10, 20), segment(40, 50));
+        ClipExportPlan plan = new ClipExportPlan("/videos/source.mp4", segments, index, true);
+
+        FfmpegCommand command = factory.create(plan, tempDir.resolve("work"), tempDir.resolve("out.mp4"));
+        String script = Files.readString(command.filterScript());
+
+        int videoSelect = script.indexOf("select='");
+        int audioSelect = script.indexOf("aselect='");
+        String videoExpr = script.substring(videoSelect + "select='".length(),
+                script.indexOf("',setpts", videoSelect));
+        String audioExpr = script.substring(audioSelect + "aselect='".length(),
+                script.indexOf("',asetpts", audioSelect));
+        assertThat(videoExpr).isEqualTo(audioExpr);
+
+        int videoSetpts = script.indexOf("setpts='");
+        int audioSetpts = script.indexOf("asetpts='");
+        String videoTimeline = script.substring(videoSetpts + "setpts='".length(),
+                script.indexOf("'[vout]", videoSetpts));
+        String audioTimeline = script.substring(audioSetpts + "asetpts='".length(),
+                script.indexOf("'[aout]", audioSetpts));
+        assertThat(videoTimeline).isEqualTo(audioTimeline);
     }
 
     @Test
@@ -92,7 +122,8 @@ class ClipFfmpegCommandFactoryTest {
         assertThat(args).contains("-map", "[vout]", "-map", "[aout]");
 
         String script = Files.readString(command.filterScript());
-        assertThat(script).contains("select='between(n\\,10\\,19)+between(n\\,40\\,49)'");
+        assertThat(script).contains("[0:v]select='gte(t\\,0.333333)*lt(t\\,0.666667)+gte(t\\,1.333333)*lt(t\\,1.666667)'");
+        assertThat(script).contains("setpts='PTS+(-0.333333)/TB+(-0.666666)/TB*gte(T\\,1.333333)'");
         assertThat(script).contains("[0:a]aselect=");
     }
 

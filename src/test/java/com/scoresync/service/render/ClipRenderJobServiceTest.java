@@ -179,9 +179,9 @@ class ClipRenderJobServiceTest {
         waitForStatus(job.id(), ClipRenderJobStatus.SUCCEEDED);
 
         // 只冻结精选的保留片段
-        assertThat(fakeRender.filterScript).contains("between(n\\,0\\,9)");
-        assertThat(fakeRender.filterScript).doesNotContain("between(n\\,20\\,29)");
-        assertThat(fakeRender.filterScript).doesNotContain("between(n\\,40\\,49)");
+        assertThat(fakeRender.filterScript).contains("gte(t\\,0.000000)*lt(t\\,0.333333)");
+        assertThat(fakeRender.filterScript).doesNotContain("gte(t\\,0.666667)*lt(t\\,1.000000)");
+        assertThat(fakeRender.filterScript).doesNotContain("gte(t\\,1.333333)*lt(t\\,1.666667)");
     }
 
     @Test
@@ -198,8 +198,8 @@ class ClipRenderJobServiceTest {
         waitForStatus(job.id(), ClipRenderJobStatus.SUCCEEDED);
 
         // 全部范围包含精选与非精选的保留片段
-        assertThat(fakeRender.filterScript).contains("between(n\\,0\\,9)");
-        assertThat(fakeRender.filterScript).contains("between(n\\,20\\,29)");
+        assertThat(fakeRender.filterScript).contains("gte(t\\,0.000000)*lt(t\\,0.333333)");
+        assertThat(fakeRender.filterScript).contains("gte(t\\,0.666667)*lt(t\\,1.000000)");
     }
 
     @Test
@@ -219,8 +219,8 @@ class ClipRenderJobServiceTest {
         fakeRender.release();
         waitForStatus(job.id(), ClipRenderJobStatus.SUCCEEDED);
         assertThat(service.get(job.id()).outputAssetId()).isNotNull();
-        assertThat(fakeRender.filterScript).contains("between(n\\,0\\,9)");
-        assertThat(fakeRender.filterScript).doesNotContain("between(n\\,100\\,199)");
+        assertThat(fakeRender.filterScript).contains("gte(t\\,0.000000)*lt(t\\,0.333333)");
+        assertThat(fakeRender.filterScript).doesNotContain("gte(t\\,3.333333)");
     }
 
     @Test

@@ -43,7 +43,7 @@ public class ClipFrameIndexBuilder {
         List<String> args = List.of(
                 appProperties.getRender().getFfprobePath(), "-v", "error",
                 "-select_streams", "v:0",
-                "-show_entries", "frame=best_effort_timestamp_time,pts_time,pkt_duration_time",
+                "-show_entries", "frame=best_effort_timestamp_time,pts_time,pkt_duration_time,duration_time",
                 "-of", "csv=p=0",
                 source.toString());
 
@@ -98,7 +98,7 @@ public class ClipFrameIndexBuilder {
 
     /**
      * 解析一行帧信息
-     * 期望格式为 best_effort_timestamp_time,pts_time,pkt_duration_time
+     * 期望格式为 best_effort_timestamp_time,pts_time,pkt_duration_time（时长字段按可用性取其一）
      */
     private void parseFrameRow(String row, List<Long> pts, List<Long> durations) {
         String[] parts = row.split(",");
@@ -117,8 +117,25 @@ public class ClipFrameIndexBuilder {
             return;
         }
         pts.add(timestamp);
-        Long duration = parts.length > 2 ? parseSeconds(parts[2]) : null;
+        Long duration = parseDuration(parts);
         durations.add(duration == null ? 0L : duration);
+    }
+
+    /**
+     * 解析一行帧信息中的帧时长
+     * <p>
+     * 不同版本的 ffprobe 提供的字段不同：
+     * 旧版本给出 pkt_duration_time，新版本只有 duration_time，
+     * 因此从第三个字段起寻找首个可解析的时长值。
+     */
+    private Long parseDuration(String[] parts) {
+        for (int i = 2; i < parts.length; i++) {
+            Long value = parseSeconds(parts[i]);
+            if (value != null && value > 0) {
+                return value;
+            }
+        }
+        return null;
     }
 
     /**
