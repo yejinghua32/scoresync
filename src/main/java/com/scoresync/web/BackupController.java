@@ -6,9 +6,9 @@ package com.scoresync.web;
  */
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.scoresync.domain.EditorState;
 import com.scoresync.service.BackupService;
 import com.scoresync.web.dto.BackupDocument;
+import com.scoresync.web.dto.ImportResult;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -47,11 +47,12 @@ public class BackupController {
     }
 
     /**
-     * 导入项目备份（需视频文件元信息匹配）
+     * 导入项目备份
+     * 原视频不在视频库中时仍会导入，返回 videoMissing=true，需由用户在项目列表中替换视频
      */
     @PostMapping("/projects/import")
-    public ResponseEntity<EditorState> importBackup(@RequestBody BackupDocument document) {
-        EditorState state = backupService.importDocument(document);
-        return ResponseEntity.status(HttpStatus.CREATED).body(state);
+    public ResponseEntity<ImportResult> importBackup(@RequestBody BackupDocument document) {
+        ImportResult result = backupService.importDocument(document);
+        return ResponseEntity.status(HttpStatus.CREATED).body(result);
     }
 }

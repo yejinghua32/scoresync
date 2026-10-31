@@ -38,7 +38,8 @@
 - **剪辑导出与记分导出共用同一把占用锁。** `ExportOccupancyService` 持有全进程互斥锁并同时查询 `render_job` 与 `clip_render_job` 两张表；两类导出互相冲突（409）。记分导出用 `RENDER_JOB_ACTIVE`，剪辑导出用 `CLIP_RENDER_JOB_ACTIVE`。
 - **媒体按已登记的 asset ID 流式返回**（`GET /api/media/{assetId}`，支持 `Range` 的 HTTP 206）。文件**从不**复制，只存储绝对路径。不要新增可读取任意本地路径的接口。
 - **删除被剪辑项目引用的视频资产同样被拒绝**（"视频正在使用"规则）。
-- **备份/恢复使用 JSON**（`BackupController`）：从编辑器导出，导入到视频库。导入前需先重新登记与原视频元信息（size + mtime）相同的视频。
+- **备份/恢复使用 JSON**（`BackupController`）：从编辑器导出，导入到视频库。导入时若视频库中存在与原视频元信息（displayName + size + mtime）匹配的视频则自动关联；否则项目仍会导入，`video_asset_id = 0`（`BackupService.NO_VIDEO_ASSET_ID`），列表返回 `videoMissing = true` 并显示"(原视频不存在)"。
+- **项目视频可替换**（`PUT /api/projects/{id}/video`，body `{ "videoAssetId": n }`）：用于原视频丢失或导入后未匹配视频的情况，从视频库重新选择；项目存在活动渲染任务时返回 409 `RENDER_JOB_ACTIVE`。`duration_ms` 不随替换改变。
 
 ## FFmpeg
 

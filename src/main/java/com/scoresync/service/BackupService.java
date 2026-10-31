@@ -6,10 +6,13 @@ import com.scoresync.repository.ScoreEventRepository;
 import com.scoresync.repository.VideoAssetRepository;
 import com.scoresync.support.DomainValidationException;
 import com.scoresync.web.dto.BackupDocument;
+import com.scoresync.web.dto.ImportResult;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Comparator;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * 备份服务
@@ -20,22 +23,24 @@ public class BackupService {
 
     private static final int SUPPORTED_SCHEMA_VERSION = 1;
 
+    /**
+     * 未关联视频的哨兵值：导入备份时原视频不存在，等待用户从视频库中替换
+     */
+    public static final long NO_VIDEO_ASSET_ID = 0L;
+
     private final MatchProjectRepository projectRepository;
     private final VideoAssetRepository videoAssetRepository;
     private final ScoreEventRepository eventRepository;
     private final ScoreReplayService replayService;
-    private final ProjectService projectService;
 
     public BackupService(MatchProjectRepository projectRepository,
                          VideoAssetRepository videoAssetRepository,
                          ScoreEventRepository eventRepository,
-                         ScoreReplayService replayService,
-                         ProjectService projectService) {
+                         ScoreReplayService replayService) {
         this.projectRepository = projectRepository;
         this.videoAssetRepository = videoAssetRepository;
         this.eventRepository = eventRepository;
         this.replayService = replayService;
-        this.projectService = projectService;
     }
 
     /**
@@ -78,13 +83,14 @@ public class BackupService {
 
     /**
      * 从备份文档导入项目
-     * 导入前需先找到与原视频元信息（文件名、大小、修改时间）匹配的视频资产
+     * 若视频库中存在与原视频元信息（文件名、大小、修改时间）匹配的视频资产则直接关联；
+     * 否则仍导入项目，视频留空（video_asset_id = 0），由用户在列表中选择替换视频。
      */
     @Transactional
-    public EditorState importDocument(BackupDocument document) {
+    public ImportResult importDocument(BackupDocument document) {
         validateSchema(document);
 
-        VideoAsset asset = findSingleAsset(
+        Optional<VideoAsset> matched = findMatchingAsset(
                 document.video().displayName(),
                 document.video().fileSize(),
                 document.video().modifiedAt());
@@ -92,7 +98,7 @@ public class BackupService {
         MatchProject project = projectRepository.findById(
                 projectRepository.insert(
                         document.project().name(),
-                        asset.id(),
+                        matched.map(VideoAsset::id).orElse(NO_VIDEO_ASSET_ID),
                         document.project().durationMs(),
                         document.project().playerA(),
                         document.project().playerB(),
@@ -120,7 +126,7 @@ public class BackupService {
             eventRepository.insert(project.id(), event.videoTimeMs(), event.playerSide());
         }
 
-        return projectService.editorState(project.id());
+        return new ImportResult(project.id(), matched.isEmpty());
     }
 
     /**
@@ -134,20 +140,13 @@ public class BackupService {
 
     /**
      * 根据视频元信息查找匹配的视频资产
+     * 未匹配到时返回空，由调用方决定如何处理；多个匹配时取 ID 最小的一个
      */
-    private VideoAsset findSingleAsset(String displayName, long fileSize, long modifiedAt) {
-        List<VideoAsset> candidates = videoAssetRepository.findAll().stream()
+    private Optional<VideoAsset> findMatchingAsset(String displayName, long fileSize, long modifiedAt) {
+        return videoAssetRepository.findAll().stream()
                 .filter(v -> v.displayName().equals(displayName))
                 .filter(v -> v.fileSize() == fileSize)
                 .filter(v -> v.modifiedAt() == modifiedAt)
-                .toList();
-
-        if (candidates.isEmpty()) {
-            throw new DomainValidationException("未找到与备份匹配的视频");
-        }
-        if (candidates.size() > 1) {
-            throw new DomainValidationException("找到多个与备份匹配的视频");
-        }
-        return candidates.get(0);
+                .min(Comparator.comparingLong(VideoAsset::id));
     }
 }

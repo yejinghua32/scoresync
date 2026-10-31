@@ -107,13 +107,16 @@ public class ProjectService {
                 .stream()
                 .map(p -> {
                     String videoName;
+                    boolean videoMissing;
                     try {
                         videoName = videoAssetRepository.findById(p.videoAssetId()).displayName();
+                        videoMissing = false;
                     } catch (DomainNotFoundException e) {
-                        videoName = "(视频已删除)";
+                        videoName = "(原视频不存在)";
+                        videoMissing = true;
                     }
                     return new ProjectSummary(p.id(), p.name(), p.playerA(), p.playerB(),
-                            p.targetWins(), p.videoAssetId(), videoName, p.showProjectName(),
+                            p.targetWins(), p.videoAssetId(), videoName, videoMissing, p.showProjectName(),
                             p.createdAt(), p.updatedAt());
                 })
                 .toList();
@@ -169,6 +172,30 @@ public class ProjectService {
         MatchProject updated = new MatchProject(project.id(), project.name(), project.videoAssetId(),
                 project.durationMs(), project.playerA(), project.playerB(), project.targetWins(),
                 project.scoreboardTemplate(), firstServer, project.showProjectName(),
+                project.createdAt(), project.updatedAt());
+        projectRepository.update(updated);
+        return editorState(projectId);
+    }
+
+    /**
+     * 替换项目使用的视频
+     * 用于原视频丢失或导入备份时未匹配到视频的情况：从视频库重新指定一个视频
+     *
+     * @param projectId    项目ID
+     * @param videoAssetId 新的视频资产ID
+     */
+    @Transactional
+    public EditorState replaceVideo(long projectId, long videoAssetId) {
+        MatchProject project = projectRepository.findById(projectId);
+        if (renderJobRepository.findActiveByMatchId(projectId).isPresent()) {
+            throw new RenderJobConflictException("RENDER_JOB_ACTIVE",
+                    "项目正在渲染中，无法替换视频");
+        }
+        videoAssetRepository.findById(videoAssetId);
+
+        MatchProject updated = new MatchProject(project.id(), project.name(), videoAssetId,
+                project.durationMs(), project.playerA(), project.playerB(), project.targetWins(),
+                project.scoreboardTemplate(), project.firstServer(), project.showProjectName(),
                 project.createdAt(), project.updatedAt());
         projectRepository.update(updated);
         return editorState(projectId);

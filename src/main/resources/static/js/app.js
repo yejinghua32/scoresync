@@ -375,13 +375,16 @@ function renderProjects() {
     tbody.innerHTML = projectPage.items.map(p => {
         const created = p.createdAt ? new Date(p.createdAt).toLocaleString('zh-CN') : '-';
         const formatLabel = formatTargetWins(p.targetWins);
+        const videoCell = p.videoMissing
+            ? `<span class="video-missing-hint">${escapeHtml(p.videoName || '(原视频不存在)')}</span>`
+            : escapeHtml(p.videoName || '-');
         return `<tr>
       <td class="name clickable" onclick="openProject(${p.id})" title="${escapeHtml(p.name)}">${escapeHtml(p.name)}</td>
       <td class="players">${escapeHtml(p.playerA)} vs ${escapeHtml(p.playerB)}</td>
       <td class="format">${formatLabel}</td>
-      <td class="video" title="${escapeHtml(p.videoName || '')}">${escapeHtml(p.videoName || '-')}</td>
+      <td class="video" title="${escapeHtml(p.videoName || '')}">${videoCell}</td>
       <td class="time">${created}</td>
-      <td class="actions"><button onclick="openEditModal(event, ${p.id})">编辑</button><button onclick="exportProjectBackup(event, ${p.id})">导出备份</button><button class="danger delete-btn" onclick="deleteProject(event, ${p.id})">删除</button></td>
+      <td class="actions"><button onclick="openEditModal(event, ${p.id})">编辑</button><button onclick="openReplaceVideoModal(event, ${p.id})">替换视频</button><button onclick="exportProjectBackup(event, ${p.id})">导出备份</button><button class="danger delete-btn" onclick="deleteProject(event, ${p.id})">删除</button></td>
     </tr>`;
     }).join('');
 
@@ -405,6 +408,11 @@ document.getElementById('project-next').addEventListener('click', () => {
 });
 
 function openProject(id) {
+    const item = projectPage.items.find(p => p.id === id);
+    if (item && item.videoMissing) {
+        showToast('原视频不存在，请先点击「替换视频」选择新视频', 'warning');
+        return;
+    }
     location.assign(`/editor.html?projectId=${id}`);
 }
 
@@ -421,6 +429,90 @@ async function deleteProject(event, id) {
         showToast(e.message, 'error');
     }
 }
+
+let replaceVideoProjectId = null;
+let replaceVideoResults = [];
+
+/**
+ * 打开替换视频弹窗
+ * 从视频库中选择新的视频关联到项目
+ */
+async function openReplaceVideoModal(event, id) {
+    if (event) event.stopPropagation();
+    const project = projectPage.items.find(p => p.id === id);
+    if (!project) {
+        showToast('未找到项目', 'error');
+        return;
+    }
+    replaceVideoProjectId = id;
+    document.getElementById('replace-video-hint').textContent = project.videoMissing
+        ? `项目「${project.name}」的原视频不存在，请从视频库中选择新的视频。`
+        : `为项目「${project.name}」更换视频。`;
+    document.getElementById('replace-video-search').value = '';
+    document.getElementById('replace-video-modal').classList.remove('hidden');
+    await loadReplaceVideos('');
+}
+
+/**
+ * 载入替换视频候选列表
+ * @param {string} search 文件名关键字
+ */
+async function loadReplaceVideos(search) {
+    const list = document.getElementById('replace-video-list');
+    list.innerHTML = '<div class="replace-video-empty">加载中...</div>';
+    try {
+        const params = new URLSearchParams({page: 0, size: 100});
+        if (search) params.set('search', search);
+        const data = await api(`/api/videos?${params}`);
+        replaceVideoResults = data.items || [];
+        if (replaceVideoResults.length === 0) {
+            list.innerHTML = '<div class="replace-video-empty">视频库中没有可用视频，请先在视频库中添加视频</div>';
+            return;
+        }
+        list.innerHTML = replaceVideoResults.map(a => `
+      <div class="replace-video-item" onclick="chooseReplaceVideo(${a.id})">
+        <span class="name" title="${escapeHtml(a.displayName)}">${escapeHtml(a.displayName)}</span>
+        <span class="size">${formatSize(a.fileSize)}</span>
+      </div>`).join('');
+    } catch (e) {
+        list.innerHTML = '<div class="replace-video-empty">加载失败</div>';
+        showToast(e.message, 'error');
+    }
+}
+
+async function chooseReplaceVideo(videoAssetId) {
+    if (!replaceVideoProjectId) return;
+    const asset = replaceVideoResults.find(a => a.id === videoAssetId);
+    const name = asset ? asset.displayName : `#${videoAssetId}`;
+    if (!confirm(`确定把项目视频替换为「${name}」吗？`)) return;
+    try {
+        await api(`/api/projects/${replaceVideoProjectId}/video`, {
+            method: 'PUT',
+            body: JSON.stringify({videoAssetId})
+        });
+        closeReplaceVideoModal();
+        await loadProjects(projectPage.page);
+        showToast('视频已替换', 'success');
+    } catch (e) {
+        showToast(e.message, 'error');
+    }
+}
+
+function closeReplaceVideoModal() {
+    document.getElementById('replace-video-modal').classList.add('hidden');
+    replaceVideoProjectId = null;
+    replaceVideoResults = [];
+}
+
+document.getElementById('replace-video-search').addEventListener('input', (e) => {
+    loadReplaceVideos(e.target.value.trim());
+});
+
+document.getElementById('replace-video-cancel').addEventListener('click', closeReplaceVideoModal);
+
+document.getElementById('replace-video-modal').addEventListener('click', (e) => {
+    if (e.target.id === 'replace-video-modal') closeReplaceVideoModal();
+});
 
 /**
  * 从视频库移除视频
@@ -847,7 +939,13 @@ document.getElementById('import-backup').addEventListener('change', async (e) =>
             method: 'POST',
             body: JSON.stringify(doc)
         });
-        location.assign(`/editor.html?projectId=${result.project.id}`);
+        if (result.videoMissing) {
+            // 原视频不存在：项目已导入，停留在列表让用户先替换视频
+            showToast('导入成功，但原视频不存在，请点击「替换视频」选择新视频', 'warning');
+            await loadProjects(0);
+        } else {
+            location.assign(`/editor.html?projectId=${result.projectId}`);
+        }
     } catch (err) {
         if (err.message.includes('JSON')) {
             showToast('备份文件不是有效 JSON', 'error');
@@ -989,6 +1087,8 @@ window.openCreateModal = openCreateModal;
 window.openClipModal = openClipModal;
 window.openProject = openProject;
 window.deleteProject = deleteProject;
+window.openReplaceVideoModal = openReplaceVideoModal;
+window.chooseReplaceVideo = chooseReplaceVideo;
 window.deleteVideo = deleteVideo;
 window.deleteAllVideos = deleteAllVideos;
 window.exportProjectBackup = exportProjectBackup;

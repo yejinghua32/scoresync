@@ -114,7 +114,7 @@ class ProjectApiIntegrationTest {
         ProjectController projectController = new ProjectController(projectService);
         ScoreEventController scoreEventController = new ScoreEventController(scoreEventService);
         MediaController mediaController = new MediaController(mediaStreamingService, assets);
-        backupService = new BackupService(projects, assets, events, replayService, projectService);
+        backupService = new BackupService(projects, assets, events, replayService);
         objectMapper = new ObjectMapper();
         objectMapper.registerModule(new JavaTimeModule());
         objectMapper.disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
@@ -484,7 +484,7 @@ class ProjectApiIntegrationTest {
                 new com.scoresync.repository.ClipProjectRepository(jdbc));
         com.scoresync.service.MediaStreamingService mediaStreamingService = new com.scoresync.service.MediaStreamingService(assets);
         com.scoresync.service.NativeFilePickerService filePickerService = new com.scoresync.service.AwtNativeFilePickerService();
-        backupService = new BackupService(projects, assets, events, replayService, projectService);
+        backupService = new BackupService(projects, assets, events, replayService);
 
         VideoSourceController videoSourceController = new VideoSourceController(videoLibraryService, filePickerService);
         ProjectController projectController = new ProjectController(projectService);
@@ -509,7 +509,8 @@ class ProjectApiIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsBytes(importedDoc)))
                 .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.events.length()").value(44));
+                .andExpect(jsonPath("$.projectId").isNumber())
+                .andExpect(jsonPath("$.videoMissing").value(false));
 
         String stateJson = mockMvc.perform(get("/api/projects/1/editor-state"))
                 .andExpect(status().isOk())
@@ -524,5 +525,117 @@ class ProjectApiIntegrationTest {
             assertThat(state.events().get(i).videoTimeMs()).isEqualTo(videoTimes.get(i));
             assertThat(state.events().get(i).playerSide().name()).isEqualTo(sides.get(i));
         }
+    }
+
+    @Test
+    void replaceVideo_shouldSwitchProjectToChosenAsset() throws Exception {
+        VideoSource source = sources.insert("/videos");
+        long oldVideoId = assets.insert(source.id(), "/videos/old.mp4", "旧视频.mp4", 1024L,
+                System.currentTimeMillis(), VideoOriginType.SCANNED);
+        long newVideoId = assets.insert(source.id(), "/videos/new.mp4", "新视频.mp4", 2048L,
+                System.currentTimeMillis(), VideoOriginType.SCANNED);
+        long projectId = projects.insert("决赛", oldVideoId, 60_000L, "甲", "乙", 2,
+                ScoreboardTemplate.CLASSIC, PlayerSide.A);
+
+        mockMvc.perform(put("/api/projects/{id}/video", projectId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"videoAssetId\":" + newVideoId + "}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.project.videoAssetId").value(newVideoId))
+                .andExpect(jsonPath("$.video.id").value(newVideoId))
+                .andExpect(jsonPath("$.video.displayName").value("新视频.mp4"));
+
+        assertThat(projects.findById(projectId).videoAssetId()).isEqualTo(newVideoId);
+    }
+
+    @Test
+    void replaceVideo_unknownAsset_returns404() throws Exception {
+        VideoSource source = sources.insert("/videos");
+        long videoId = assets.insert(source.id(), "/videos/test.mp4", "测试视频", 1024L,
+                System.currentTimeMillis(), VideoOriginType.SCANNED);
+        long projectId = projects.insert("决赛", videoId, 60_000L, "甲", "乙", 2,
+                ScoreboardTemplate.CLASSIC, PlayerSide.A);
+
+        mockMvc.perform(put("/api/projects/{id}/video", projectId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"videoAssetId\":99999}"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("NOT_FOUND"));
+    }
+
+    @Test
+    void replaceVideo_withActiveRenderJob_returns409() throws Exception {
+        VideoSource source = sources.insert("/videos");
+        long oldVideoId = assets.insert(source.id(), "/videos/old.mp4", "旧视频.mp4", 1024L,
+                System.currentTimeMillis(), VideoOriginType.SCANNED);
+        long newVideoId = assets.insert(source.id(), "/videos/new.mp4", "新视频.mp4", 2048L,
+                System.currentTimeMillis(), VideoOriginType.SCANNED);
+        long projectId = projects.insert("决赛", oldVideoId, 60_000L, "甲", "乙", 2,
+                ScoreboardTemplate.CLASSIC, PlayerSide.A);
+        long jobId = renderJobs.insert(projectId, ScoreboardTemplate.CLASSIC);
+        RenderJob job = renderJobs.findById(jobId);
+        renderJobs.update(new RenderJob(
+                job.id(), job.matchId(), job.templateCode(), RenderJobStatus.RUNNING,
+                job.progressPercent(), job.outputPath(), job.failureMessage(),
+                job.createdAt(), java.time.Instant.now(), job.finishedAt()));
+
+        mockMvc.perform(put("/api/projects/{id}/video", projectId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"videoAssetId\":" + newVideoId + "}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("RENDER_JOB_ACTIVE"));
+
+        assertThat(projects.findById(projectId).videoAssetId()).isEqualTo(oldVideoId);
+    }
+
+    @Test
+    void listProjects_missingVideo_shouldFlagVideoMissing() throws Exception {
+        projects.insert("恢复的比赛", BackupService.NO_VIDEO_ASSET_ID, 60_000L, "甲", "乙", 2,
+                ScoreboardTemplate.CLASSIC, PlayerSide.A);
+
+        mockMvc.perform(get("/api/projects"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].videoMissing").value(true))
+                .andExpect(jsonPath("$.items[0].videoName").value("(原视频不存在)"));
+    }
+
+    @Test
+    void importWithoutMatchingVideo_thenReplace_restoresPlayableProject() throws Exception {
+        VideoSource source = sources.insert("/videos");
+        long newVideoId = assets.insert(source.id(), "/videos/new.mp4", "新视频.mp4", 2048L,
+                System.currentTimeMillis(), VideoOriginType.SCANNED);
+
+        String importJson = "{\"schemaVersion\":1,"
+                + "\"project\":{\"name\":\"恢复的比赛\",\"durationMs\":60000,\"playerA\":\"甲\",\"playerB\":\"乙\","
+                + "\"targetWins\":2,\"firstServer\":\"A\"},"
+                + "\"video\":{\"displayName\":\"原视频.mp4\",\"fileSize\":9999,\"modifiedAt\":1,\"originType\":\"SCANNED\"},"
+                + "\"events\":[{\"videoTimeMs\":1000,\"playerSide\":\"A\",\"sequenceNo\":1}]}";
+
+        String created = mockMvc.perform(post("/api/projects/import")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(importJson))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.videoMissing").value(true))
+                .andReturn().getResponse().getContentAsString();
+        long projectId = Long.parseLong(created.replaceAll(".*\"projectId\":(\\d+).*", "$1"));
+
+        // 原视频不存在时编辑器状态不可用
+        mockMvc.perform(get("/api/projects/{id}/editor-state", projectId))
+                .andExpect(status().isNotFound());
+
+        mockMvc.perform(get("/api/projects"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].videoMissing").value(true));
+
+        mockMvc.perform(put("/api/projects/{id}/video", projectId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"videoAssetId\":" + newVideoId + "}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.video.id").value(newVideoId))
+                .andExpect(jsonPath("$.events.length()").value(1));
+
+        mockMvc.perform(get("/api/projects/{id}/editor-state", projectId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.project.videoAssetId").value(newVideoId));
     }
 }

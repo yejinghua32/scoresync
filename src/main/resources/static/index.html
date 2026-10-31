@@ -283,6 +283,20 @@
 <datalist id="player-options"></datalist>
 <datalist id="edit-player-options"></datalist>
 
+<div id="replace-video-modal" class="modal-overlay hidden">
+    <div class="modal modal-wide">
+        <h2>替换视频</h2>
+        <p id="replace-video-hint" class="modal-hint"></p>
+        <div class="search-bar">
+            <input type="text" id="replace-video-search" placeholder="搜索视频文件名...">
+        </div>
+        <div id="replace-video-list" class="replace-video-list"></div>
+        <div class="modal-actions">
+            <button type="button" id="replace-video-cancel" class="secondary">取消</button>
+        </div>
+    </div>
+</div>
+
 <div id="clip-modal" class="modal-overlay hidden">
     <div class="modal">
         <h2>创建剪辑项目</h2>

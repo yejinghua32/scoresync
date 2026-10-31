@@ -82,7 +82,7 @@ class BackupServiceTest {
         replayService = new ScoreReplayService();
         projectService = new ProjectService(projectRepository, videoAssetRepository, eventRepository,
                 new com.scoresync.repository.RenderJobRepository(jdbc), replayService);
-        backupService = new BackupService(projectRepository, videoAssetRepository, eventRepository, replayService, projectService);
+        backupService = new BackupService(projectRepository, videoAssetRepository, eventRepository, replayService);
         objectMapper = new ObjectMapper();
     }
 
@@ -160,8 +160,10 @@ class BackupServiceTest {
         );
         BackupDocument backup = new BackupDocument(1, project, video, events);
 
-        EditorState state = backupService.importDocument(backup);
+        com.scoresync.web.dto.ImportResult result = backupService.importDocument(backup);
 
+        assertThat(result.videoMissing()).isFalse();
+        EditorState state = projectService.editorState(result.projectId());
         assertThat(state.project().name()).isEqualTo("恢复的比赛");
         assertThat(state.project().playerA()).isEqualTo("选手X");
         assertThat(state.project().playerB()).isEqualTo("选手Y");
@@ -187,24 +189,30 @@ class BackupServiceTest {
     }
 
     @Test
-    void importWithMismatchedVideoThrowsException() {
+    void importWithMismatchedVideoStillImportsAndMarksVideoMissing() {
         videoAssetRepository.insert(null, "/videos/test.mp4", "测试视频",
                 1024L, System.currentTimeMillis(), VideoOriginType.PICKED);
 
         BackupDocument.BackupVideo video = new BackupDocument.BackupVideo("不存在的视频", 9999L, 0L, "PICKED");
         BackupDocument.BackupProject project = new BackupDocument.BackupProject("恢复的比赛", 120_000L, "选手X", "选手Y", 3, "A");
-        List<BackupDocument.BackupEvent> events = List.of();
+        List<BackupDocument.BackupEvent> events = List.of(
+                new BackupDocument.BackupEvent(1000L, "A", 1),
+                new BackupDocument.BackupEvent(2000L, "B", 2)
+        );
         BackupDocument backup = new BackupDocument(1, project, video, events);
 
-        assertThatThrownBy(() -> backupService.importDocument(backup))
-                .isInstanceOf(DomainValidationException.class)
-                .hasMessageContaining("未找到与备份匹配的视频");
+        com.scoresync.web.dto.ImportResult result = backupService.importDocument(backup);
+
+        assertThat(result.videoMissing()).isTrue();
+        var saved = projectRepository.findById(result.projectId());
+        assertThat(saved.videoAssetId()).isEqualTo(BackupService.NO_VIDEO_ASSET_ID);
+        assertThat(eventRepository.findByMatchId(result.projectId())).hasSize(2);
     }
 
     @Test
-    void importWithMultipleMatchingVideosThrowsException() {
+    void importWithMultipleMatchingVideosPicksLowestId() {
         long now = System.currentTimeMillis();
-        videoAssetRepository.insert(null, "/videos/test1.mp4", "测试视频",
+        long firstId = videoAssetRepository.insert(null, "/videos/test1.mp4", "测试视频",
                 1024L, now, VideoOriginType.PICKED);
         videoAssetRepository.insert(null, "/videos/test2.mp4", "测试视频",
                 1024L, now, VideoOriginType.PICKED);
@@ -214,9 +222,10 @@ class BackupServiceTest {
         List<BackupDocument.BackupEvent> events = List.of();
         BackupDocument backup = new BackupDocument(1, project, video, events);
 
-        assertThatThrownBy(() -> backupService.importDocument(backup))
-                .isInstanceOf(DomainValidationException.class)
-                .hasMessageContaining("找到多个与备份匹配的视频");
+        com.scoresync.web.dto.ImportResult result = backupService.importDocument(backup);
+
+        assertThat(result.videoMissing()).isFalse();
+        assertThat(projectRepository.findById(result.projectId()).videoAssetId()).isEqualTo(firstId);
     }
 
     @Test

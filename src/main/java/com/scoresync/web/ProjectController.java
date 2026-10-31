@@ -87,6 +87,16 @@ public class ProjectController {
     }
 
     /**
+     * 替换项目使用的视频（从视频库中重新选择）
+     */
+    @PutMapping("/projects/{id}/video")
+    public ResponseEntity<EditorState> replaceVideo(@PathVariable long id,
+                                                    @Valid @RequestBody ReplaceVideoRequest request) {
+        EditorState state = projectService.replaceVideo(id, request.videoAssetId());
+        return ResponseEntity.ok(state);
+    }
+
+    /**
      * 更新项目基本信息（名称、选手、目标局数）
      */
     @PutMapping("/projects/{id}")
