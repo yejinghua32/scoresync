@@ -899,7 +899,7 @@ function renderSegments() {
         return;
     }
     const featured = featuredSegments().length;
-    summary.textContent = `保留 ${keptFrames} 帧 / ${formatDuration(keptMs)}`
+    summary.textContent = `保留 ${keeps.length} 段 / ${keptFrames} 帧 / ${formatDuration(keptMs)}`
         + ` · 精选 ${featured} 段`
         + ` · 视频总时长 ${formatDuration(frameRangeMs(0, totalFrames))}`;
 }
@@ -908,7 +908,20 @@ function renderSegments() {
  * 时长显示文本
  */
 function formatDuration(ms) {
-    return `${(Math.max(0, ms) / 1000).toFixed(3)} 秒`;
+    const seconds = Math.max(0, ms) / 1000;
+    return `${seconds.toFixed(3)} 秒（${formatHourSecond(ms)}）`;
+}
+
+/**
+ * 整小时数与小时内剩余秒数
+ * 秒数按四舍五入处理；正好落在整小时时显示 HH:00
+ */
+function formatHourSecond(ms) {
+    const totalSeconds = Math.round(Math.max(0, ms) / 1000);
+    const hours = Math.floor(totalSeconds / 3600);
+    const totalMinutes = Math.floor(totalSeconds / 60);
+    const remainderSeconds = totalSeconds - totalMinutes * 60;
+    return `${String(hours).padStart(2, '0')}:${String(remainderSeconds).padStart(2, '0')}`;
 }
 
 /**
@@ -955,7 +968,9 @@ function renderKeepTimeline() {
     const totalMs = keptTotalMs(keeps);
     const duration = document.getElementById('clip-keep-duration');
     if (duration) {
-        duration.textContent = totalMs > 0 ? `保留时长 ${formatDuration(totalMs)}` : '';
+        duration.textContent = totalMs > 0
+            ? `${keeps.length} 个保留片段 · 保留时长 ${formatDuration(totalMs)}`
+            : '';
     }
     if (!keeps.length || totalMs <= 0) {
         keepTimeline.innerHTML = '<div class="clip-keep-empty">暂无保留片段</div>';
@@ -1298,7 +1313,7 @@ function renderPending() {
     const typeLabel = pending.type === 'KEEP' ? '保留' : '舍弃';
     const frames = pending.end - pending.start;
     const seconds = (frameRangeMs(pending.start, pending.end) / 1000).toFixed(3);
-    info.textContent = `暂选：${typeLabel} ${pending.start} - ${pending.end}（${frames} 帧 / ${seconds} 秒）`;
+    info.textContent = `暂选：${typeLabel} ${pending.start} - ${pending.end}（${frames} 帧 / ${seconds} 秒（${formatHourSecond(frameRangeMs(pending.start, pending.end))}））`;
     info.className = pending.type === 'KEEP' ? 'pending-keep' : 'pending-drop';
     renderTimeline();
 }
@@ -1307,7 +1322,9 @@ function updateFrameInfo() {
     document.getElementById('clip-frame-info').textContent =
         totalFrames > 0 ? `帧 ${cursor} / ${totalFrames - 1}（共 ${totalFrames} 帧）` : '帧 -';
     document.getElementById('clip-video-time').textContent =
-        totalFrames > 0 ? `时间 ${(frameTimeMs(cursor) / 1000).toFixed(3)} 秒` : '';
+        totalFrames > 0
+            ? `时间 ${(frameTimeMs(cursor) / 1000).toFixed(3)} 秒（${formatHourSecond(frameTimeMs(cursor))}）`
+            : '';
     updateCursorMarker();
     syncActiveSegment();
 }

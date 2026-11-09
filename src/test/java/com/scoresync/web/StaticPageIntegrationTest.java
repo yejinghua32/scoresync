@@ -91,4 +91,16 @@ class StaticPageIntegrationTest {
                 .andExpect(content().string(containsString("QUEUED")))
                 .andExpect(content().string(not(containsString("/api/clip-render-jobs/active"))));
     }
+
+    @Test
+    void clipEditorDisplaysKeepSegmentCountAndHourSecondDuration() throws Exception {
+        mockMvc.perform(get("/js/clip-editor.js"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("keeps.length")))
+                .andExpect(content().string(containsString("const duration = document.getElementById('clip-keep-duration')")))
+                .andExpect(content().string(containsString("seconds.toFixed(3)")))
+                .andExpect(content().string(containsString("formatHourSecond(ms)")))
+                .andExpect(content().string(containsString("String(hours).padStart(2, '0')")))
+                .andExpect(content().string(containsString("String(remainderSeconds).padStart(2, '0')")));
+    }
 }
