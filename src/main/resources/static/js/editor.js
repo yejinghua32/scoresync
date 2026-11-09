@@ -421,7 +421,7 @@ document.querySelectorAll('input[name="first-server"]').forEach((radio) => {
 
 async function loadActiveJob() {
     try {
-        const job = await api('/api/render-jobs/active');
+        const job = await api(`/api/projects/${projectId}/render-jobs/active`);
         if (job) {
             activeJobId = job.id;
             updateRenderCard(job);
@@ -448,7 +448,7 @@ function updateRenderCard(job) {
     startRenderBtn.disabled = true;
 
     if (job.status === 'QUEUED') {
-        renderStatusEl.textContent = '排队中…';
+        renderStatusEl.textContent = '导出排队中…';
         renderStatusEl.className = 'render-status progress';
         cancelRenderBtn.classList.remove('hidden');
         downloadLink.classList.add('hidden');

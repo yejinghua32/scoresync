@@ -35,7 +35,7 @@ class ClipRenderJobServiceTest {
     private ClipRenderJobRepository jobs;
     private VideoAssetRepository assets;
     private VideoLibraryService videoLibrary;
-    private ExportOccupancyService occupancy;
+    private ExportQueueService exportQueue;
     private ClipSourceValidator validator;
     private ClipFrameIndexService indexService;
     private FakeRenderService fakeRender;
@@ -108,7 +108,7 @@ class ClipRenderJobServiceTest {
         VideoSourceRepository sources = new VideoSourceRepository(jdbc);
         videoLibrary = new VideoLibraryService(sources, assets,
                 new MatchProjectRepository(jdbc), projects);
-        occupancy = new ExportOccupancyService(new RenderJobRepository(jdbc), jobs);
+        exportQueue = new ExportQueueService();
 
         appProperties = new AppProperties();
         appProperties.getClip().setWorkDir(tempDir.resolve("clip-work").toString());
@@ -315,34 +315,17 @@ class ClipRenderJobServiceTest {
     }
 
     @Test
-    void clipExportConflictsWithScoreExport() throws Exception {
+    void crossTypeActiveJobNoLongerBlocksDifferentProject() throws Exception {
         ClipRenderJobService service = service();
-        // 记分导出任务处于活跃状态
+        // 记分导出任务处于活跃状态，但项目范围检查不应阻止剪辑项目排队
         jdbc.update("INSERT INTO render_job (id, match_id, template_code, status, progress_percent, "
                 + "output_path, failure_message, created_at, started_at, finished_at) "
                 + "VALUES (1, 1, 'CLASSIC', 'RUNNING', 10, NULL, NULL, '2026-08-04T00:00:00Z', NULL, NULL)");
 
-        assertThatThrownBy(() -> service.start(projectId))
-                .isInstanceOf(RenderJobConflictException.class)
-                .hasFieldOrPropertyWithValue("code", "CLIP_RENDER_JOB_ACTIVE")
-                .hasMessage("已有导出任务正在执行");
-    }
-
-    @Test
-    void scoreExportConflictsWithClipExport() throws Exception {
-        ClipRenderJobService service = service();
-        fakeRender.writeOutput = true;
-
         ClipRenderJob job = service.start(projectId);
+        assertThat(job.status()).isEqualTo(ClipRenderJobStatus.QUEUED);
+        // 本测试队列没有运行记分任务，剪辑任务应由同一 worker 执行
         fakeRender.awaitEntered();
-
-        RenderJobService scoreService = new RenderJobService(new RenderJobRepository(jdbc),
-                null, null, null, null, null, null, fakeRender, appProperties, occupancy);
-
-        assertThatThrownBy(() -> scoreService.start(1L))
-                .isInstanceOf(RenderJobConflictException.class)
-                .hasFieldOrPropertyWithValue("code", "RENDER_JOB_ACTIVE");
-
         fakeRender.release();
         waitForStatus(job.id(), ClipRenderJobStatus.SUCCEEDED);
     }
@@ -368,7 +351,7 @@ class ClipRenderJobServiceTest {
                 fakeRender,
                 new FixedProbeService(appProperties),
                 videoLibrary,
-                occupancy,
+                exportQueue,
                 appProperties);
     }
 

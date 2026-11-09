@@ -131,6 +131,34 @@ public class ClipProjectRepository {
     }
 
     /**
+     * 仅当项目仍处于指定状态时更新帧索引状态，避免排队任务覆盖已取消或已完成的记录
+     */
+    public int updateFrameIndexIfStatus(long id, ClipFrameIndexStatus expected,
+                                        ClipFrameIndexStatus next, Integer totalFrames) {
+        return jdbc.update("""
+                        UPDATE clip_project SET frame_index_status = ?, total_frames = ?, updated_at = ?
+                        WHERE id = ? AND frame_index_status = ?""",
+                next.name(), totalFrames, Instant.now().toString(), id, expected.name());
+    }
+
+    /**
+     * 启动恢复：上次进程退出时仍在建立中的索引需要重新排队
+     */
+    public int resetBuildingToPending() {
+        return jdbc.update("""
+                UPDATE clip_project SET frame_index_status = 'PENDING', total_frames = NULL, updated_at = ?
+                WHERE frame_index_status = 'BUILDING'""", Instant.now().toString());
+    }
+
+    /**
+     * 按项目创建顺序返回待建立索引的项目 ID
+     */
+    public List<Long> findPendingIdsOrderById() {
+        return jdbc.query("SELECT id FROM clip_project WHERE frame_index_status = 'PENDING' ORDER BY id",
+                (rs, rowNum) -> rs.getLong(1));
+    }
+
+    /**
      * 统计引用指定视频资产的剪辑项目数量
      */
     public int countByVideoAssetId(long videoAssetId) {

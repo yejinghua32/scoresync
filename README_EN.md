@@ -59,7 +59,7 @@ FFmpeg is not required at startup — only checked when exporting.
 **Workflow:**
 1. Select a template (`CLASSIC` or `MODERN`) in the editor's export panel — preview updates live.
 2. Play/pause/seek to see the preview refresh with authoritative server state.
-3. Click "Start Export" — only one render job allowed at a time (409 + `RENDER_JOB_ACTIVE` otherwise).
+3. Click "Start Export" — score and clip exports share one global FIFO queue. Different projects may queue, while a project with an existing queued/running export returns 409 + `RENDER_JOB_ACTIVE`.
 4. Progress shown during render; cancel cleans up temp files.
 5. On success, download H.264/AAC MP4 matching source resolution/framerate.
 

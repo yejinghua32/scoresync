@@ -23,6 +23,8 @@ scoresync:
     video-crf: 18
     video-preset: medium
     audio-bitrate: 192k
+    max-encoding-threads: 2
+    max-filter-threads: 1
   clip:
     cache-dir: ${SCORESYNC_DATA_DIR:${user.home}/.scoresync}/clip-cache
     work-dir: ${SCORESYNC_DATA_DIR:${user.home}/.scoresync}/clip-render-work

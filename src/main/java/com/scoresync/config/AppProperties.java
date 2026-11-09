@@ -97,6 +97,8 @@ public class AppProperties {
         private int videoCrf = 18;
         private String videoPreset = "medium";
         private String audioBitrate = "192k";
+        private int maxEncodingThreads = 2;
+        private int maxFilterThreads = 1;
 
         public String getFfmpegPath() {
             return ffmpegPath;
@@ -152,6 +154,28 @@ public class AppProperties {
 
         public void setAudioBitrate(String audioBitrate) {
             this.audioBitrate = audioBitrate;
+        }
+
+        /**
+         * 单个导出任务的编码线程上限；必须为正数，避免 FFmpeg 使用无上限自动线程
+         */
+        public int getMaxEncodingThreads() {
+            return maxEncodingThreads;
+        }
+
+        public void setMaxEncodingThreads(int maxEncodingThreads) {
+            this.maxEncodingThreads = Math.max(1, maxEncodingThreads);
+        }
+
+        /**
+         * 单个导出任务的 filter graph 线程上限
+         */
+        public int getMaxFilterThreads() {
+            return maxFilterThreads;
+        }
+
+        public void setMaxFilterThreads(int maxFilterThreads) {
+            this.maxFilterThreads = Math.max(1, maxFilterThreads);
         }
     }
 

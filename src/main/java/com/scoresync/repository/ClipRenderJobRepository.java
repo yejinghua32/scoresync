@@ -92,6 +92,20 @@ public class ClipRenderJobRepository {
         return jdbc.query("SELECT * FROM clip_render_job WHERE project_id = ? ORDER BY id DESC", ROW_MAPPER, projectId);
     }
 
+    /**
+     * 查询指定剪辑项目的活跃导出任务（QUEUED 或 RUNNING）
+     */
+    public Optional<ClipRenderJob> findActiveByProjectId(long projectId) {
+        try {
+            return Optional.ofNullable(jdbc.queryForObject(
+                    "SELECT * FROM clip_render_job WHERE project_id = ? AND status IN ('QUEUED','RUNNING') "
+                            + "ORDER BY id DESC LIMIT 1",
+                    ROW_MAPPER, projectId));
+        } catch (EmptyResultDataAccessException e) {
+            return Optional.empty();
+        }
+    }
+
     public int update(ClipRenderJob job) {
         return jdbc.update("""
                         UPDATE clip_render_job SET status = ?, progress_percent = ?, output_path = ?,

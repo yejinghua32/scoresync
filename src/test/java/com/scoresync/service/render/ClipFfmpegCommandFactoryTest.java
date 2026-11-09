@@ -116,7 +116,8 @@ class ClipFfmpegCommandFactoryTest {
 
         List<String> args = command.arguments();
         assertThat(args).contains("-filter_complex_script");
-        assertThat(args).contains("-c:v", "libx264");
+        assertThat(args).contains("-filter_threads", "1");
+        assertThat(args).contains("-c:v", "libx264", "-threads", "2");
         // 不允许用关键帧 copy
         assertThat(args).doesNotContain("-c", "copy");
         assertThat(args).contains("-map", "[vout]", "-map", "[aout]");

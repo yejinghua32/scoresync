@@ -58,7 +58,8 @@ class FfmpegCommandFactoryTest {
         FfmpegCommand command = factory.create(plan, workDir);
 
         assertThat(command.arguments()).contains("-c:v", "libx264", "-c:a", "aac", "-map", "0:a?");
-        assertThat(command.arguments()).contains("-crf", "18", "-pix_fmt", "yuv420p",
+        assertThat(command.arguments()).contains("-crf", "18", "-threads", "2",
+                "-filter_threads", "1", "-pix_fmt", "yuv420p",
                 "-fps_mode", "passthrough", "-movflags", "+faststart", "-nostats");
         String filterContent = Files.readString(command.filterScript());
         assertThat(filterContent).contains("overlay=x=48:y=");

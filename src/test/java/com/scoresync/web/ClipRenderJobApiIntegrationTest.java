@@ -34,6 +34,7 @@ class ClipRenderJobApiIntegrationTest {
     Path tempDir;
 
     private MockMvc mockMvc;
+    private JdbcTemplate jdbc;
     private ClipRenderJobRepository jobs;
     private ClipProjectRepository projects;
     private ClipSegmentRepository segments;
@@ -47,7 +48,7 @@ class ClipRenderJobApiIntegrationTest {
         DriverManagerDataSource dataSource = new DriverManagerDataSource();
         dataSource.setDriverClassName("org.sqlite.JDBC");
         dataSource.setUrl("jdbc:sqlite:" + dbFile);
-        JdbcTemplate jdbc = new JdbcTemplate(dataSource);
+        jdbc = new JdbcTemplate(dataSource);
         jdbc.execute("""
                 CREATE TABLE video_source (
                   id INTEGER PRIMARY KEY, root_path TEXT NOT NULL UNIQUE,
@@ -107,7 +108,7 @@ class ClipRenderJobApiIntegrationTest {
         VideoSourceRepository sources = new VideoSourceRepository(jdbc);
         VideoLibraryService videoLibrary = new VideoLibraryService(sources, assets,
                 new MatchProjectRepository(jdbc), projects);
-        ExportOccupancyService occupancy = new ExportOccupancyService(new RenderJobRepository(jdbc), jobs);
+        ExportQueueService exportQueue = new ExportQueueService();
 
         AppProperties properties = new AppProperties();
         properties.getClip().setWorkDir(tempDir.resolve("clip-work").toString());
@@ -140,7 +141,7 @@ class ClipRenderJobApiIntegrationTest {
         fakeRender = new FakeRenderService(properties);
         ClipRenderJobService service = new ClipRenderJobService(jobs, projects, segments, assets,
                 validator, indexService, new ClipFfmpegCommandFactory(properties), fakeRender,
-                new FixedProbeService(properties), videoLibrary, occupancy, properties);
+                new FixedProbeService(properties), videoLibrary, exportQueue, properties);
 
         mockMvc = MockMvcBuilders.standaloneSetup(new ClipRenderJobController(service))
                 .setControllerAdvice(new ApiExceptionHandler())
@@ -179,6 +180,26 @@ class ClipRenderJobApiIntegrationTest {
                 .andExpect(jsonPath("$.status").value("RUNNING"));
 
         fakeRender.release();
+    }
+
+    @Test
+    void projectScopedActiveClipJobDoesNotReturnAnotherProject() throws Exception {
+        long otherProjectId = projects.insert("第二集", 1L, 10, 5,
+                Files.size(tempDir.resolve("source.mp4")),
+                Files.getLastModifiedTime(tempDir.resolve("source.mp4")).toMillis());
+        jdbc.update("UPDATE clip_project SET frame_index_status = 'READY', total_frames = 60 WHERE id = ?", otherProjectId);
+        segments.insert(otherProjectId, ClipSegmentType.KEEP, 10, 20);
+
+        String body = mockMvc.perform(post("/api/clip-projects/{id}/render-jobs", otherProjectId))
+                .andExpect(status().isAccepted())
+                .andReturn().getResponse().getContentAsString();
+        long otherJobId = Long.parseLong(body.replaceAll(".*\\\"id\\\":(\\d+).*", "$1"));
+
+        mockMvc.perform(get("/api/clip-projects/{id}/render-jobs/active", projectId))
+                .andExpect(status().isNoContent());
+        mockMvc.perform(get("/api/clip-projects/{id}/render-jobs/active", otherProjectId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(otherJobId));
     }
 
     @Test

@@ -10,7 +10,6 @@ import com.scoresync.service.ClipSourceValidator;
 import com.scoresync.service.VideoLibraryService;
 import com.scoresync.support.DomainValidationException;
 import com.scoresync.support.RenderJobConflictException;
-import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.CommandLineRunner;
@@ -24,15 +23,12 @@ import java.nio.file.Paths;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
 
 /**
  * 剪辑导出任务服务
  * 管理剪辑项目的导出任务：冻结保留区间、精确拼接保留片段、登记新视频资产
  * <p>
- * 与记分导出共用 {@link ExportOccupancyService} 的占用检查，两者互相冲突
+ * 与记分导出共用 {@link ExportQueueService} 的全局单 worker 队列，两者不会并发执行
  */
 @Service
 @Order(21)
@@ -50,14 +46,8 @@ public class ClipRenderJobService implements CommandLineRunner {
     private final FfmpegRenderService renderService;
     private final FfmpegProbeService probeService;
     private final VideoLibraryService videoLibraryService;
-    private final ExportOccupancyService exportOccupancyService;
+    private final ExportQueueService exportQueueService;
     private final AppProperties appProperties;
-
-    private final ExecutorService executor = Executors.newSingleThreadExecutor(r -> {
-        Thread t = new Thread(r, "clip-render-job-worker");
-        t.setDaemon(true);
-        return t;
-    });
 
     public ClipRenderJobService(ClipRenderJobRepository repository,
                                 ClipProjectRepository projectRepository,
@@ -69,7 +59,7 @@ public class ClipRenderJobService implements CommandLineRunner {
                                 FfmpegRenderService renderService,
                                 FfmpegProbeService probeService,
                                 VideoLibraryService videoLibraryService,
-                                ExportOccupancyService exportOccupancyService,
+                                ExportQueueService exportQueueService,
                                 AppProperties appProperties) {
         this.repository = repository;
         this.projectRepository = projectRepository;
@@ -81,7 +71,7 @@ public class ClipRenderJobService implements CommandLineRunner {
         this.renderService = renderService;
         this.probeService = probeService;
         this.videoLibraryService = videoLibraryService;
-        this.exportOccupancyService = exportOccupancyService;
+        this.exportQueueService = exportQueueService;
         this.appProperties = appProperties;
     }
 
@@ -106,7 +96,10 @@ public class ClipRenderJobService implements CommandLineRunner {
      * @throws RenderJobConflictException 已有导出任务在执行时抛出
      */
     public ClipRenderJob start(long projectId, ClipExportMode mode) {
-        return exportOccupancyService.runExclusively("CLIP_RENDER_JOB_ACTIVE", "已有导出任务正在执行", () -> {
+        return exportQueueService.submitExclusively(() -> {
+            repository.findActiveByProjectId(projectId).ifPresent(job -> {
+                throw new RenderJobConflictException("CLIP_RENDER_JOB_ACTIVE", "已有导出任务正在执行");
+            });
             ClipProject project = projectRepository.findById(projectId);
             // 冻结导出范围内的保留区间，导出过程中的后续编辑不影响本次任务
             List<ClipSegment> keepSegments = exportSegments(projectId, mode);
@@ -119,9 +112,13 @@ public class ClipRenderJobService implements CommandLineRunner {
 
             long jobId = repository.insert(project.id());
             ClipRenderJob job = repository.findById(jobId);
-            executor.submit(() -> runJob(job.id(), keepSegments, index));
+            exportQueueService.enqueue(() -> runJob(job.id(), keepSegments, index));
             return job;
         });
+    }
+
+    public Optional<ClipRenderJob> findActive(long projectId) {
+        return repository.findActiveByProjectId(projectId);
     }
 
     /**
@@ -216,6 +213,11 @@ public class ClipRenderJobService implements CommandLineRunner {
             verifyOutput(finalOutput);
             VideoAsset registered = videoLibraryService.registerExported(finalOutput);
 
+            ClipRenderJob current = repository.findById(jobId);
+            if (current.status() != ClipRenderJobStatus.RUNNING) {
+                deleteOutput(finalOutput);
+                return;
+            }
             repository.update(new ClipRenderJob(jobId, job.projectId(), ClipRenderJobStatus.SUCCEEDED,
                     100, finalOutput.toString(), registered.id(), null,
                     job.createdAt(), Instant.now(), Instant.now()));
@@ -264,6 +266,10 @@ public class ClipRenderJobService implements CommandLineRunner {
 
     private void updateProgress(long jobId, int percent) {
         ClipRenderJob job = repository.findById(jobId);
+        // 取消可能与本回调竞态；终态不能被迟到的进度更新覆盖
+        if (job.status() != ClipRenderJobStatus.RUNNING) {
+            return;
+        }
         repository.update(new ClipRenderJob(jobId, job.projectId(), ClipRenderJobStatus.RUNNING,
                 percent, job.outputPath(), job.outputAssetId(), job.failureMessage(),
                 job.createdAt(), job.startedAt(), job.finishedAt()));
@@ -317,20 +323,4 @@ public class ClipRenderJobService implements CommandLineRunner {
         failInterruptedJobs();
     }
 
-    /**
-     * 关闭服务时取消运行中的导出任务
-     */
-    @PreDestroy
-    public void shutdown() {
-        renderService.cancelAll();
-        executor.shutdown();
-        try {
-            if (!executor.awaitTermination(5, TimeUnit.SECONDS)) {
-                executor.shutdownNow();
-            }
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            executor.shutdownNow();
-        }
-    }
 }

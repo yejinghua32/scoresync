@@ -122,6 +122,16 @@ public class RenderJobController {
     }
 
     /**
+     * 获取指定项目的活跃渲染任务；其他项目的排队任务不会出现在当前编辑器中
+     */
+    @GetMapping("/projects/{id}/render-jobs/active")
+    public ResponseEntity<RenderJobResponse> getActiveRenderJobForProject(@PathVariable long id) {
+        Optional<RenderJob> active = renderJobService.findActive(id);
+        return active.map(job -> ResponseEntity.ok(RenderJobResponse.from(job)))
+                .orElseGet(() -> ResponseEntity.noContent().build());
+    }
+
+    /**
      * 取消正在执行的渲染任务
      */
     @PostMapping("/render-jobs/{id}/cancel")

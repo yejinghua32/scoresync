@@ -13,6 +13,7 @@ import com.scoresync.service.render.ClipFrameExtractor;
 import com.scoresync.service.render.ClipFrameIndexBuilder;
 import com.scoresync.service.render.ClipFrameIndexService;
 import com.scoresync.service.render.ClipThumbnailService;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -25,6 +26,7 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
@@ -37,6 +39,8 @@ class ClipProjectApiIntegrationTest {
     Path tempDir;
 
     private MockMvc mockMvc;
+    private javax.sql.DataSource persistenceDataSource;
+    private ClipFrameIndexService indexService;
     private ClipProjectRepository projects;
     private ClipSegmentRepository segments;
     private Path videoFile;
@@ -47,6 +51,7 @@ class ClipProjectApiIntegrationTest {
         DriverManagerDataSource dataSource = new DriverManagerDataSource();
         dataSource.setDriverClassName("org.sqlite.JDBC");
         dataSource.setUrl("jdbc:sqlite:" + dbFile);
+        persistenceDataSource = dataSource;
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         jdbc.execute("""
                 CREATE TABLE video_asset (
@@ -88,7 +93,7 @@ class ClipProjectApiIntegrationTest {
 
         AppProperties properties = new AppProperties();
         properties.getClip().setCacheDir(tempDir.resolve("cache").toString());
-        ClipFrameIndexService indexService = new ClipFrameIndexService(projects,
+        indexService = new ClipFrameIndexService(projects,
                 new ClipSourceValidator(assets), new FakeIndexBuilder(), properties);
         ClipThumbnailService thumbnailService = new ClipThumbnailService(indexService,
                 new ClipSourceValidator(assets), new FakeExtractor(), properties);
@@ -104,6 +109,26 @@ class ClipProjectApiIntegrationTest {
         mockMvc = MockMvcBuilders.standaloneSetup(new ClipProjectController(service, indexService, thumbnailService))
                 .setControllerAdvice(new ApiExceptionHandler())
                 .build();
+    }
+
+    @AfterEach
+    void stopIndexWorker() throws InterruptedException {
+        if (indexService != null) {
+            // 创建接口异步入队；等在途索引完成后再关闭 worker，避免临时目录被并发写
+            int waiting = 0;
+            while (waiting < 100 && hasPendingIndex()) {
+                Thread.sleep(10);
+                waiting++;
+            }
+            indexService.shutdown();
+        }
+    }
+
+    private boolean hasPendingIndex() {
+        Integer count = new JdbcTemplate(persistenceDataSource).queryForObject(
+                "SELECT COUNT(*) FROM clip_project WHERE frame_index_status IN ('PENDING','BUILDING')",
+                Integer.class);
+        return count != null && count > 0;
     }
 
     @Test
@@ -281,13 +306,8 @@ class ClipProjectApiIntegrationTest {
     }
 
     @Test
-    void frameIndexStatusTriggersBuildAndReportsFrameCount() throws Exception {
+    void creationQueuesIndexAndStatusReportsFrameCount() throws Exception {
         long id = createProject();
-
-        mockMvc.perform(get("/api/clip-projects/{id}/frame-index", id))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value(org.hamcrest.Matchers.anyOf(
-                        org.hamcrest.Matchers.is("BUILDING"), org.hamcrest.Matchers.is("READY"))));
 
         for (int i = 0; i < 100; i++) {
             String status = mockMvc.perform(get("/api/clip-projects/{id}/frame-index", id))
@@ -302,6 +322,32 @@ class ClipProjectApiIntegrationTest {
             Thread.sleep(25);
         }
         throw new AssertionError("帧索引未在预期时间内建立完成");
+    }
+
+    @Test
+    void statusPollingDoesNotImplicitlyBuildFailedIndex() throws Exception {
+        long id = createProject();
+        awaitIndexReady(id);
+        projects.updateFrameIndex(id, ClipFrameIndexStatus.FAILED, null);
+
+        mockMvc.perform(get("/api/clip-projects/{id}/frame-index", id))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("FAILED"));
+        assertThat(projects.findById(id).frameIndexStatus()).isEqualTo(ClipFrameIndexStatus.FAILED);
+    }
+
+    @Test
+    void explicitRetryQueuesFailedIndex() throws Exception {
+        long id = createProject();
+        projects.updateFrameIndex(id, ClipFrameIndexStatus.FAILED, null);
+
+        mockMvc.perform(post("/api/clip-projects/{id}/frame-index/retry", id))
+                .andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.status").value(org.hamcrest.Matchers.anyOf(
+                        org.hamcrest.Matchers.is("PENDING"),
+                        org.hamcrest.Matchers.is("BUILDING"),
+                        org.hamcrest.Matchers.is("READY"))));
+        awaitIndexReady(id);
     }
 
     @Test

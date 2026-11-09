@@ -28,6 +28,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class RenderJobServiceTest {
 
+    private JdbcTemplate jdbc;
     private RenderJobRepository repository;
     private RenderJobService service;
     private BlockingFakeRenderService fakeRender;
@@ -43,7 +44,7 @@ class RenderJobServiceTest {
         DriverManagerDataSource dataSource = new DriverManagerDataSource();
         dataSource.setDriverClassName("org.sqlite.JDBC");
         dataSource.setUrl("jdbc:sqlite:" + dbFile);
-        JdbcTemplate jdbc = new JdbcTemplate(dataSource);
+        jdbc = new JdbcTemplate(dataSource);
 
         jdbc.execute("CREATE TABLE video_source (" +
                 "  id INTEGER PRIMARY KEY, root_path TEXT NOT NULL UNIQUE," +
@@ -107,7 +108,26 @@ class RenderJobServiceTest {
 
         service = new RenderJobService(repository, projects, videos, events,
                 probeService, planService, commandFactory, fakeRender, appProperties,
-                new ExportOccupancyService(repository, new ClipRenderJobRepository(jdbc)));
+                new ExportQueueService());
+    }
+
+    @Test
+    void differentMatchCanQueueWhileAnotherMatchRuns() throws Exception {
+        jdbc.update("INSERT INTO match_project (id, name, video_asset_id, duration_ms, player_a, player_b, "
+                + "target_wins, scoreboard_template, created_at, updated_at) VALUES "
+                + "(2, '测试二', 1, 5000, '甲', '乙', 2, 'CLASSIC', '2026-08-04T00:00:00Z', '2026-08-04T00:00:00Z')");
+        RenderJob first = service.start(matchId);
+        fakeRender.awaitEntered();
+
+        RenderJob second = service.start(2L);
+
+        assertThat(second.status()).isEqualTo(RenderJobStatus.QUEUED);
+        assertThat(repository.findByStatus(RenderJobStatus.RUNNING)).extracting(RenderJob::id).containsOnly(first.id());
+        assertThat(repository.findActiveByMatchId(2L)).contains(second);
+        service.cancel(second.id());
+        fakeRender.release();
+        waitForStatus(first.id(), RenderJobStatus.SUCCEEDED);
+        assertThat(service.get(second.id()).status()).isEqualTo(RenderJobStatus.CANCELLED);
     }
 
     @Test
@@ -180,6 +200,16 @@ class RenderJobServiceTest {
 
         assertThat(repository.findByStatus(RenderJobStatus.FAILED))
                 .extracting(RenderJob::id).contains(job.id());
+    }
+
+    private void waitForStatus(long jobId, RenderJobStatus expected) throws InterruptedException {
+        for (int i = 0; i < 200; i++) {
+            if (repository.findById(jobId).status() == expected) {
+                return;
+            }
+            Thread.sleep(25);
+        }
+        assertThat(repository.findById(jobId).status()).isEqualTo(expected);
     }
 
     static class FixedProbeService extends FfmpegProbeService {

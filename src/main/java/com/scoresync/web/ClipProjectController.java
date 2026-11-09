@@ -57,6 +57,8 @@ public class ClipProjectController {
     @PostMapping
     public ResponseEntity<ClipProjectResponse> create(@Valid @RequestBody CreateClipProjectRequest request) {
         var detail = clipProjectService.create(request.name(), request.videoId());
+        // 事务提交后再入队，避免后台线程读到尚未提交的项目记录
+        frameIndexService.requestBuild(detail.project());
         return ResponseEntity.status(HttpStatus.CREATED).body(ClipProjectResponse.from(detail));
     }
 
@@ -148,19 +150,25 @@ public class ClipProjectController {
     }
 
     /**
-     * 查询帧索引状态
-     * 索引未就绪时会触发后台建立，前端轮询本接口直到 READY
+     * 查询帧索引状态。轮询是只读操作，不会隐式改变队列顺序。
      */
     @GetMapping("/{id}/frame-index")
     public ClipFrameIndexStatusResponse frameIndexStatus(@PathVariable long id) {
-        var detail = clipProjectService.detail(id);
-        var project = detail.project();
-        if (project.frameIndexStatus() != com.scoresync.domain.ClipFrameIndexStatus.READY) {
-            frameIndexService.requestBuild(project);
-            project = clipProjectService.detail(id).project();
-        }
+        var project = clipProjectService.detail(id).project();
         return new ClipFrameIndexStatusResponse(project.frameIndexStatus().name(),
                 project.totalFrames(), project.updatedAt());
+    }
+
+    /**
+     * 显式重试帧索引建立；PENDING/FAILED 幂等入队，BUILDING/READY 保持当前状态。
+     */
+    @PostMapping("/{id}/frame-index/retry")
+    public ResponseEntity<ClipFrameIndexStatusResponse> retryFrameIndex(@PathVariable long id) {
+        var project = clipProjectService.detail(id).project();
+        frameIndexService.requestBuild(project);
+        project = clipProjectService.detail(id).project();
+        return ResponseEntity.accepted().body(new ClipFrameIndexStatusResponse(
+                project.frameIndexStatus().name(), project.totalFrames(), project.updatedAt()));
     }
 
     /**

@@ -8,7 +8,6 @@ import com.scoresync.repository.ScoreEventRepository;
 import com.scoresync.repository.VideoAssetRepository;
 import com.scoresync.support.DomainNotFoundException;
 import com.scoresync.support.RenderJobConflictException;
-import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.CommandLineRunner;
@@ -22,9 +21,6 @@ import java.nio.file.Paths;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
 
 /**
  * 渲染任务服务
@@ -46,13 +42,7 @@ public class RenderJobService implements CommandLineRunner {
     private final FfmpegCommandFactory commandFactory;
     private final FfmpegRenderService renderService;
     private final AppProperties appProperties;
-    private final ExportOccupancyService exportOccupancyService;
-
-    private final ExecutorService executor = Executors.newSingleThreadExecutor(r -> {
-        Thread t = new Thread(r, "render-job-worker");
-        t.setDaemon(true);
-        return t;
-    });
+    private final ExportQueueService exportQueueService;
 
     public RenderJobService(RenderJobRepository repository,
                             MatchProjectRepository projectRepository,
@@ -63,7 +53,7 @@ public class RenderJobService implements CommandLineRunner {
                             FfmpegCommandFactory commandFactory,
                             FfmpegRenderService renderService,
                             AppProperties appProperties,
-                            ExportOccupancyService exportOccupancyService) {
+                            ExportQueueService exportQueueService) {
         this.repository = repository;
         this.projectRepository = projectRepository;
         this.videoAssetRepository = videoAssetRepository;
@@ -73,7 +63,7 @@ public class RenderJobService implements CommandLineRunner {
         this.commandFactory = commandFactory;
         this.renderService = renderService;
         this.appProperties = appProperties;
-        this.exportOccupancyService = exportOccupancyService;
+        this.exportQueueService = exportQueueService;
     }
 
     /**
@@ -84,18 +74,23 @@ public class RenderJobService implements CommandLineRunner {
      * @throws RenderJobConflictException 如果已有任务在运行
      */
     public RenderJob start(long matchId) {
-        return exportOccupancyService.runExclusively("RENDER_JOB_ACTIVE", "已有导出任务正在执行", () -> {
+        return exportQueueService.submitExclusively(() -> {
+            repository.findActiveByMatchId(matchId).ifPresent(job -> {
+                throw new RenderJobConflictException("RENDER_JOB_ACTIVE", "已有导出任务正在执行");
+            });
             var project = projectRepository.findById(matchId);
             if (project == null) {
                 throw new DomainNotFoundException("比赛项目不存在");
             }
             long jobId = repository.insert(project.id(), project.scoreboardTemplate());
             RenderJob job = repository.findById(jobId);
-
-            executor.submit(() -> runJob(job.id()));
-
+            exportQueueService.enqueue(() -> runJob(job.id()));
             return job;
         });
+    }
+
+    public Optional<RenderJob> findActive(long matchId) {
+        return repository.findActiveByMatchId(matchId);
     }
 
     /**
@@ -159,6 +154,10 @@ public class RenderJobService implements CommandLineRunner {
      */
     private void runJob(long jobId) {
         RenderJob job = repository.findById(jobId);
+        if (job.status() != RenderJobStatus.QUEUED) {
+            // 排队期间被取消或已被启动清理标记失败，不能重新进入 RUNNING
+            return;
+        }
         try {
             markRunning(jobId);
             var project = projectRepository.findById(job.matchId());
@@ -184,6 +183,10 @@ public class RenderJobService implements CommandLineRunner {
                 }
             });
 
+            RenderJob current = repository.findById(jobId);
+            if (current.status() != RenderJobStatus.RUNNING) {
+                return;
+            }
             repository.update(new RenderJob(jobId, job.matchId(), job.templateCode(),
                     RenderJobStatus.SUCCEEDED, 100, finalOutput.toString(), null,
                     job.createdAt(), Instant.now(), Instant.now()));
@@ -210,6 +213,10 @@ public class RenderJobService implements CommandLineRunner {
 
     private void updateProgress(long jobId, int percent) {
         RenderJob job = repository.findById(jobId);
+        // 取消可能与本回调竞态；终态不能被迟到的进度更新覆盖
+        if (job.status() != RenderJobStatus.RUNNING) {
+            return;
+        }
         repository.update(new RenderJob(jobId, job.matchId(), job.templateCode(),
                 RenderJobStatus.RUNNING, percent, job.outputPath(), job.failureMessage(),
                 job.createdAt(), job.startedAt(), job.finishedAt()));
@@ -246,20 +253,4 @@ public class RenderJobService implements CommandLineRunner {
         failInterruptedJobs();
     }
 
-    /**
-     * 关闭服务时取消所有运行中的渲染任务
-     */
-    @PreDestroy
-    public void shutdown() {
-        renderService.cancelAll();
-        executor.shutdown();
-        try {
-            if (!executor.awaitTermination(5, TimeUnit.SECONDS)) {
-                executor.shutdownNow();
-            }
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            executor.shutdownNow();
-        }
-    }
 }

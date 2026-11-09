@@ -52,6 +52,8 @@ public class ClipFfmpegCommandFactory {
         args.add(plan.videoAbsolutePath());
         args.add("-filter_complex_script");
         args.add(filterScript.toString());
+        args.add("-filter_threads");
+        args.add(String.valueOf(appProperties.getRender().getMaxFilterThreads()));
         args.add("-map");
         args.add("[vout]");
         if (plan.hasAudio()) {
@@ -68,6 +70,8 @@ public class ClipFfmpegCommandFactory {
         args.add(appProperties.getRender().getVideoPreset());
         args.add("-crf");
         args.add(String.valueOf(appProperties.getRender().getVideoCrf()));
+        args.add("-threads");
+        args.add(String.valueOf(appProperties.getRender().getMaxEncodingThreads()));
         args.add("-pix_fmt");
         args.add("yuv420p");
         args.add("-fps_mode");

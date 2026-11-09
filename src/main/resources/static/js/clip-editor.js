@@ -38,6 +38,7 @@ let archiveInFlight = null;
 let frameTimes = new Int32Array(0);
 /** 导出任务轮询句柄 */
 let renderPollTimer = null;
+let activeClipJobId = null;
 /** 跳转完成后需要恢复的帧号，非空时暂停游标跟随 */
 let seekRestoreFrame = null;
 /** 用户是否手动定位过视频，手动定位期间跳播预览让位 */
@@ -148,9 +149,14 @@ async function ensureFrameIndex(projectId) {
         if (status.status === 'FAILED') {
             state.className = 'clip-index-state failed';
             state.innerHTML = '帧索引建立失败，无法继续剪辑。<button class="secondary" id="clip-retry-index">重试</button>';
-            document.getElementById('clip-retry-index').addEventListener('click', () => {
+            document.getElementById('clip-retry-index').addEventListener('click', async () => {
                 state.textContent = '正在重新建立帧索引…';
-                ensureFrameIndex(projectId);
+                try {
+                    await api(`/api/clip-projects/${projectId}/frame-index/retry`, {method: 'POST'});
+                    await ensureFrameIndex(projectId);
+                } catch (e) {
+                    state.textContent = e.message;
+                }
             });
             return;
         }
@@ -1388,6 +1394,7 @@ async function startExport() {
             method: 'POST',
             body: JSON.stringify({mode})
         });
+        activeClipJobId = job.id;
         setRenderStatus('QUEUED', '导出排队中');
         document.getElementById('clip-cancel-export').classList.remove('hidden');
         pollRenderJob(job.id);
@@ -1416,9 +1423,14 @@ function pollRenderJob(jobId) {    clearInterval(renderPollTimer);
     renderPollTimer = setInterval(async () => {
         try {
             const job = await api(`/api/clip-render-jobs/${jobId}`);
-            setRenderStatus(job.status, `导出中 ${job.progressPercent}%`);
+            if (job.status === 'QUEUED') {
+                setRenderStatus('QUEUED', '导出排队中');
+            } else if (job.status === 'RUNNING') {
+                setRenderStatus('RUNNING', `导出中 ${job.progressPercent}%`);
+            }
             if (job.status === 'SUCCEEDED') {
                 clearInterval(renderPollTimer);
+                activeClipJobId = null;
                 setRenderStatus('SUCCEEDED', '导出完成');
                 const link = document.getElementById('clip-download');
                 link.href = `/api/clip-render-jobs/${jobId}/download`;
@@ -1430,6 +1442,7 @@ function pollRenderJob(jobId) {    clearInterval(renderPollTimer);
                 showToast('导出完成，已登记到视频库', 'success');
             } else if (job.status === 'FAILED') {
                 clearInterval(renderPollTimer);
+                activeClipJobId = null;
                 setRenderStatus('FAILED', '导出失败');
                 document.getElementById('clip-cancel-export').classList.add('hidden');
                 document.getElementById('clip-export').disabled = false;
@@ -1437,6 +1450,7 @@ function pollRenderJob(jobId) {    clearInterval(renderPollTimer);
                 showToast(job.failureMessage || '导出失败', 'error');
             } else if (job.status === 'CANCELLED') {
                 clearInterval(renderPollTimer);
+                activeClipJobId = null;
                 setRenderStatus('CANCELLED', '导出已取消');
                 document.getElementById('clip-cancel-export').classList.add('hidden');
                 document.getElementById('clip-export').disabled = false;
@@ -1452,13 +1466,13 @@ function pollRenderJob(jobId) {    clearInterval(renderPollTimer);
 }
 
 async function cancelExport() {
+    if (!activeClipJobId) {
+        return;
+    }
     try {
-        const active = await api('/api/clip-render-jobs/active');
-        if (!active) {
-            return;
-        }
-        await api(`/api/clip-render-jobs/${active.id}/cancel`, {method: 'POST'});
+        await api(`/api/clip-render-jobs/${activeClipJobId}/cancel`, {method: 'POST'});
         clearInterval(renderPollTimer);
+        activeClipJobId = null;
         setRenderStatus('CANCELLED', '导出已取消');
         document.getElementById('clip-cancel-export').classList.add('hidden');
         document.getElementById('clip-export').disabled = false;

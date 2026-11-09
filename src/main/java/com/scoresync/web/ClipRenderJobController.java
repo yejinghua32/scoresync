@@ -81,6 +81,16 @@ public class ClipRenderJobController {
     }
 
     /**
+     * 获取指定剪辑项目的活跃导出任务
+     */
+    @GetMapping("/clip-projects/{id}/render-jobs/active")
+    public ResponseEntity<ClipRenderJobResponse> getActiveRenderJobForProject(@PathVariable long id) {
+        Optional<ClipRenderJob> active = clipRenderJobService.findActive(id);
+        return active.map(job -> ResponseEntity.ok(ClipRenderJobResponse.from(job)))
+                .orElseGet(() -> ResponseEntity.noContent().build());
+    }
+
+    /**
      * 取消正在执行的剪辑导出任务
      */
     @PostMapping("/clip-render-jobs/{id}/cancel")

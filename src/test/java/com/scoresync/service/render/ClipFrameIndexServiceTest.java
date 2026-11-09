@@ -18,6 +18,10 @@ import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -87,6 +91,74 @@ class ClipFrameIndexServiceTest {
         ClipProject project = projects.findById(id);
         assertThat(project.frameIndexStatus()).isEqualTo(ClipFrameIndexStatus.READY);
         assertThat(project.totalFrames()).isEqualTo(4);
+    }
+
+    @Test
+    void queuesMultipleProjectsInCreationOrder() throws Exception {
+        FakeIndexBuilder builder = new FakeIndexBuilder();
+        service = new ClipFrameIndexService(projects,
+                new ClipSourceValidator(new VideoAssetRepository(jdbc)), builder, properties());
+        long first = createProject("第一集", 1L);
+        long second = createProject("第二集", createSecondAsset());
+
+        service.requestBuild(projects.findById(first));
+        service.requestBuild(projects.findById(second));
+        waitForStatus(second, ClipFrameIndexStatus.READY);
+
+        assertThat(projects.findById(first).frameIndexStatus()).isEqualTo(ClipFrameIndexStatus.READY);
+        assertThat(builder.startedFiles).containsExactly("source.mp4", "source-2.mp4");
+    }
+
+    @Test
+    void failureDoesNotBlockLaterProject() throws Exception {
+        CountingFailingBuilder builder = new CountingFailingBuilder();
+        service = new ClipFrameIndexService(projects,
+                new ClipSourceValidator(new VideoAssetRepository(jdbc)), builder, properties());
+        long first = createProject();
+        long second = createProject();
+        builder.failId = first;
+        builder.failed = new CountDownLatch(1);
+
+        service.requestBuild(projects.findById(first));
+        service.requestBuild(projects.findById(second));
+        assertThat(builder.failed.await(5, TimeUnit.SECONDS)).isTrue();
+        waitForStatus(second, ClipFrameIndexStatus.READY);
+
+        assertThat(projects.findById(first).frameIndexStatus()).isEqualTo(ClipFrameIndexStatus.FAILED);
+        assertThat(projects.findById(second).frameIndexStatus()).isEqualTo(ClipFrameIndexStatus.READY);
+        assertThat(builder.calls.get()).isEqualTo(2);
+    }
+
+    @Test
+    void duplicateRequestsOnlyBuildOnce() throws Exception {
+        FakeIndexBuilder builder = new FakeIndexBuilder();
+        service = new ClipFrameIndexService(projects,
+                new ClipSourceValidator(new VideoAssetRepository(jdbc)), builder, properties());
+        long id = createProject();
+
+        service.requestBuild(projects.findById(id));
+        service.requestBuild(projects.findById(id));
+        waitForStatus(id, ClipFrameIndexStatus.READY);
+        service.requestBuild(projects.findById(id));
+
+        assertThat(builder.calls.get()).isEqualTo(1);
+    }
+
+    @Test
+    void startupRestoresBuildingAndPendingProjectsInIdOrder() throws Exception {
+        jdbc.update("DELETE FROM clip_project");
+        long first = createProject("第一集", 1L);
+        long second = createProject("第二集", createSecondAsset());
+        projects.updateFrameIndex(first, ClipFrameIndexStatus.BUILDING, null);
+        projects.updateFrameIndex(second, ClipFrameIndexStatus.PENDING, null);
+
+        FakeIndexBuilder builder = new FakeIndexBuilder();
+        service = new ClipFrameIndexService(projects,
+                new ClipSourceValidator(new VideoAssetRepository(jdbc)), builder, properties());
+        service.run();
+        waitForStatus(second, ClipFrameIndexStatus.READY);
+
+        assertThat(builder.startedFiles).containsExactly("source.mp4", "source-2.mp4");
     }
 
     @Test
@@ -168,9 +240,24 @@ class ClipFrameIndexServiceTest {
     }
 
     private long createProject() throws IOException {
-        long id = projects.insert("第一集", 1L, 10, 5,
-                Files.size(videoFile), Files.getLastModifiedTime(videoFile).toMillis());
-        return id;
+        return createProject("第一集", 1L);
+    }
+
+    private long createProject(String name, long videoAssetId) throws IOException {
+        Path file = videoAssetId == 1L ? videoFile : Path.of(jdbc.queryForObject(
+                "SELECT absolute_path FROM video_asset WHERE id = ?", String.class, videoAssetId));
+        return projects.insert(name, videoAssetId, 10, 5,
+                Files.size(file), Files.getLastModifiedTime(file).toMillis());
+    }
+
+    private long createSecondAsset() throws IOException {
+        Path second = tempDir.resolve("source-2.mp4");
+        Files.writeString(second, "fake-video-2");
+        jdbc.update("INSERT INTO video_asset (id, source_id, absolute_path, display_name, file_size, "
+                        + "modified_at, origin_type, created_at, updated_at) VALUES (2, NULL, ?, 'source-2.mp4', ?, ?, "
+                        + "'SCANNED', '2026-08-04T00:00:00Z', '2026-08-04T00:00:00Z')",
+                second.toString(), Files.size(second), Files.getLastModifiedTime(second).toMillis());
+        return 2L;
     }
 
     private void waitForBuild(long id) throws InterruptedException {
@@ -193,6 +280,7 @@ class ClipFrameIndexServiceTest {
      */
     static class FakeIndexBuilder extends ClipFrameIndexBuilder {
         final AtomicInteger calls = new AtomicInteger();
+        final List<String> startedFiles = new CopyOnWriteArrayList<>();
 
         FakeIndexBuilder() {
             super(new AppProperties());
@@ -201,6 +289,7 @@ class ClipFrameIndexServiceTest {
         @Override
         public ClipFrameIndex build(Path source) {
             calls.incrementAndGet();
+            startedFiles.add(source.getFileName().toString());
             return new ClipFrameIndex(
                     new long[]{0L, 40_000L, 90_000L, 160_000L},
                     new long[]{0L, 0L, 0L, 40_000L},
@@ -211,6 +300,28 @@ class ClipFrameIndexServiceTest {
     /**
      * 假索引构建器：始终失败
      */
+    static class CountingFailingBuilder extends ClipFrameIndexBuilder {
+        final AtomicInteger calls = new AtomicInteger();
+        long failId = -1;
+        CountDownLatch failed = new CountDownLatch(1);
+
+        CountingFailingBuilder() {
+            super(new AppProperties());
+        }
+
+        @Override
+        public ClipFrameIndex build(Path source) {
+            int call = calls.incrementAndGet();
+            if (call == 1) {
+                failed.countDown();
+                throw new IllegalStateException("索引建立失败");
+            }
+            return new ClipFrameIndex(
+                    new long[]{0L, 40_000L},
+                    new long[]{0L, 0L}, 0L);
+        }
+    }
+
     static class FailingIndexBuilder extends ClipFrameIndexBuilder {
         FailingIndexBuilder() {
             super(new AppProperties());

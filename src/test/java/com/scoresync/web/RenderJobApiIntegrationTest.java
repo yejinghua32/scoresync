@@ -202,6 +202,21 @@ class RenderJobApiIntegrationTest {
     }
 
     @Test
+    void projectScopedActiveJobDoesNotReturnAnotherProject() throws Exception {
+        long otherProjectId = projects.insert("半决赛", 1L, 60000L, "甲", "乙", 2,
+                com.scoresync.domain.ScoreboardTemplate.CLASSIC, com.scoresync.domain.PlayerSide.A);
+        RenderJob other = new RenderJob(99L, otherProjectId, com.scoresync.domain.ScoreboardTemplate.CLASSIC,
+                RenderJobStatus.QUEUED, 0, null, null, Instant.now(), null, null);
+        fakeRenderService.jobs.put(99L, other);
+
+        mockMvc.perform(get("/api/projects/{id}/render-jobs/active", projectId))
+                .andExpect(status().isNoContent());
+        mockMvc.perform(get("/api/projects/{id}/render-jobs/active", otherProjectId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(99));
+    }
+
+    @Test
     void cancelRenderJobReturnsCancelledStatus() throws Exception {
         long jobId = fakeRenderService.seedActive(projectId);
 
@@ -291,6 +306,14 @@ class RenderJobApiIntegrationTest {
         @Override
         public Optional<RenderJob> findActive() {
             return jobs.values().stream()
+                    .filter(j -> j.status() == RenderJobStatus.QUEUED || j.status() == RenderJobStatus.RUNNING)
+                    .findFirst();
+        }
+
+        @Override
+        public Optional<RenderJob> findActive(long matchId) {
+            return jobs.values().stream()
+                    .filter(j -> j.matchId() == matchId)
                     .filter(j -> j.status() == RenderJobStatus.QUEUED || j.status() == RenderJobStatus.RUNNING)
                     .findFirst();
         }

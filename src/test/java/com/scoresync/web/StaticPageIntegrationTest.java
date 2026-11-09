@@ -79,9 +79,16 @@ class StaticPageIntegrationTest {
     }
 
     @Test
-    void servesClipEditorScript() throws Exception {
+    void editorScriptsUseProjectScopedActiveJobsAndCurrentJobCancellation() throws Exception {
+        mockMvc.perform(get("/js/editor.js"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("/api/projects/${projectId}/render-jobs/active")))
+                .andExpect(content().string(containsString("/render-jobs/active")))
+                .andExpect(content().string(containsString("QUEUED")));
         mockMvc.perform(get("/js/clip-editor.js"))
                 .andExpect(status().isOk())
-                .andExpect(content().string(containsString("/api/clip-projects")));
+                .andExpect(content().string(containsString("activeClipJobId")))
+                .andExpect(content().string(containsString("QUEUED")))
+                .andExpect(content().string(not(containsString("/api/clip-render-jobs/active"))));
     }
 }
