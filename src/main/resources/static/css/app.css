@@ -347,6 +347,24 @@ button.danger:hover {
     max-width: 560px;
 }
 
+.modal-video-preview {
+    max-width: min(1100px, 94vw);
+}
+
+.video-preview-player {
+    display: block;
+    width: 100%;
+    max-height: calc(100vh - 220px);
+    background: #000;
+    border-radius: 8px;
+}
+
+.video-preview-error {
+    padding: 3rem 1rem;
+    color: var(--text-dim);
+    text-align: center;
+}
+
 .modal-hint {
     font-size: 0.8125rem;
     color: var(--text-dim);

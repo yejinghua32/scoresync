@@ -283,6 +283,17 @@
 <datalist id="player-options"></datalist>
 <datalist id="edit-player-options"></datalist>
 
+<div id="video-preview-modal" class="modal-overlay hidden">
+    <div class="modal modal-video-preview">
+        <h2 id="video-preview-title">视频预览</h2>
+        <video id="video-preview-player" class="video-preview-player" controls playsinline preload="metadata"></video>
+        <p id="video-preview-error" class="video-preview-error hidden">视频无法加载，请检查文件是否可读。</p>
+        <div class="modal-actions">
+            <button type="button" id="video-preview-cancel" class="secondary">取消</button>
+        </div>
+    </div>
+</div>
+
 <div id="replace-video-modal" class="modal-overlay hidden">
     <div class="modal modal-wide">
         <h2>替换视频</h2>

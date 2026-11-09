@@ -730,10 +730,10 @@ function renderVideos() {
             const canCreate = a.readable !== false;
             const rowClass = canCreate ? 'clickable' : 'unavailable';
             const actionBtn = canCreate
-                ? `<button onclick="openCreateModal(${a.id})">编辑比分</button>
+                ? `<button onclick="openCreateModal(event, ${a.id})">编辑比分</button>
                <button class="secondary" onclick="openClipModal(event, ${a.id})">开始剪辑</button>`
                 : `<span class="badge">不可读</span>`;
-            return `<tr class="${rowClass}" ${canCreate ? `onclick="openCreateModal(${a.id})"` : ''}>
+            return `<tr class="${rowClass}" ${canCreate ? `onclick="openVideoPreview(${a.id})"` : ''}>
       <td class="name" title="${escapeHtml(a.displayName)}">${escapeHtml(a.displayName)}</td>
       <td class="size">${sizeStr}</td>
       <td class="source">${sourceName}</td>
@@ -749,6 +749,48 @@ function renderVideos() {
     document.getElementById('video-page-info').textContent =
         `第 ${videoPage.page + 1} / ${Math.max(videoPage.totalPages, 1)} 页`;
 }
+
+/**
+ * 打开视频预览
+ * 预览层只能通过取消按钮关闭，点击遮罩不关闭
+ */
+function openVideoPreview(videoId) {
+    const asset = assets.find(a => a.id === videoId);
+    if (!asset || asset.readable === false) {
+        showToast('该视频不可读，无法预览', 'error');
+        return;
+    }
+    const modal = document.getElementById('video-preview-modal');
+    const player = document.getElementById('video-preview-player');
+    const error = document.getElementById('video-preview-error');
+    document.getElementById('video-preview-title').textContent = asset.displayName;
+    error.classList.add('hidden');
+    player.classList.remove('hidden');
+    player.src = `/api/media/${videoId}`;
+    modal.classList.remove('hidden');
+    player.load();
+}
+
+function closeVideoPreview() {
+    const modal = document.getElementById('video-preview-modal');
+    const player = document.getElementById('video-preview-player');
+    player.pause();
+    player.removeAttribute('src');
+    player.load();
+    document.getElementById('video-preview-error').classList.add('hidden');
+    player.classList.remove('hidden');
+    modal.classList.add('hidden');
+}
+
+document.getElementById('video-preview-player').addEventListener('error', () => {
+    const modal = document.getElementById('video-preview-modal');
+    if (modal.classList.contains('hidden')) return;
+    const player = document.getElementById('video-preview-player');
+    player.classList.add('hidden');
+    document.getElementById('video-preview-error').classList.remove('hidden');
+});
+
+document.getElementById('video-preview-cancel').addEventListener('click', closeVideoPreview);
 
 /**
  * 打开剪辑项目创建弹窗
@@ -827,7 +869,8 @@ async function ensureTeamMembersRegistered(names) {
     }
 }
 
-function openCreateModal(videoId) {
+function openCreateModal(event, videoId) {
+    if (event) event.stopPropagation();
     document.getElementById('project-video-id').value = videoId;
     document.getElementById('project-form').reset();
     document.getElementById('project-video-id').value = videoId;
@@ -1084,6 +1127,7 @@ function showToast(message, type = 'success') {
 window.scanSource = scanSource;
 window.deleteSource = deleteSource;
 window.openCreateModal = openCreateModal;
+window.openVideoPreview = openVideoPreview;
 window.openClipModal = openClipModal;
 window.openProject = openProject;
 window.deleteProject = deleteProject;
